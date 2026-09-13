@@ -1,0 +1,31 @@
+# Node
+node_modules/
+dist/
+coverage/
+*.log
+.env
+
+# Flutter
+client/.dart_tool/
+client/.flutter-plugins
+client/.flutter-plugins-dependencies
+client/build/
+client/.packages
+client/pubspec.lock
+client/.idea/
+client/android/.gradle/
+client/android/local.properties
+client/ios/Pods/
+client/ios/.symlinks/
+client/ios/Flutter/Generated.xcconfig
+client/ios/Flutter/ephemeral/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.local
