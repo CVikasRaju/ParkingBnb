@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+
+import 'token_store.dart';
 
 /// Thin typed API client for the ParkPeer backend (`/api/v1`).
 ///
@@ -13,11 +14,12 @@ import 'package:http/http.dart' as http;
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? httpClient})
       : baseUrl = baseUrl ?? _defaultBaseUrl,
-        _http = httpClient ?? http.Client();
+        _http = httpClient ?? http.Client(),
+        _storage = TokenStore();
 
   final String baseUrl;
   final http.Client _http;
-  static const _storage = FlutterSecureStorage();
+  final TokenStore _storage;
   static const _tokenKey = 'parkpeer.jwt';
   static const _roleKey = 'parkpeer.role';
 
@@ -25,7 +27,7 @@ class ApiClient {
   String? _role;
 
   static String get _defaultBaseUrl {
-    if (kIsWeb) return 'https://localhost:8080/api/v1';
+    if (kIsWeb) return 'http://localhost:8080/api/v1';
     if (Platform.isAndroid) {
       // 10.0.2.2 = host loopback from the Android emulator.
       return 'http://10.0.2.2:8080/api/v1';
@@ -44,20 +46,20 @@ class ApiClient {
   Future<void> persistSession(String token, String role) async {
     _token = token;
     _role = role;
-    await _storage.write(key: _tokenKey, value: token);
-    await _storage.write(key: _roleKey, value: role);
+    await _storage.write(_tokenKey, token);
+    await _storage.write(_roleKey, role);
   }
 
   Future<void> restoreSession() async {
-    _token = await _storage.read(key: _tokenKey);
-    _role = await _storage.read(key: _roleKey);
+    _token = await _storage.read(_tokenKey);
+    _role = await _storage.read(_roleKey);
   }
 
   Future<void> clearSession() async {
     _token = null;
     _role = null;
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _roleKey);
+    await _storage.delete(_tokenKey);
+    await _storage.delete(_roleKey);
   }
 
   String? get role => _role;
