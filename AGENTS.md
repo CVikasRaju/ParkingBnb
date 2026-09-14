@@ -48,3 +48,4 @@ flutter build web --release
 - Backend default `PAYMENT_PROVIDER=mock` — swap to `razorpay`/`stripe` for real escrow.
 - Android manifest has `android:usesCleartextTraffic="true"` for local dev over http; iOS Info.plist has camera/location usage descriptions.
 - Docs dir `docs/` is committed as provided — treat as read-only.
+- Web token storage is platform-adaptive (`lib/core/token_store*.dart`): native uses secure storage, web uses `localStorage` (avoids the `flutter_secure_storage` web plugin bootstrap failure that left a blank white canvas). Web build defaults to `http://localhost:8080/api/v1`.
