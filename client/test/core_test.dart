@@ -1,5 +1,11 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:parkpeer/core/api_client.dart';
 import 'package:parkpeer/core/geolocation.dart';
+import 'package:parkpeer/features/booking/booking_service.dart';
 import 'package:parkpeer/features/provider/scanner_screen.dart';
 
 void main() {
@@ -29,6 +35,66 @@ void main() {
         isWithinGeofence(driverLat: 12.98, driverLng: 77.5946, spotLat: 12.9716, spotLng: 77.5946),
         isFalse,
       );
+    });
+  });
+
+  // These payload shapes are the backend's zod schemas verbatim; a rename on
+  // either side silently breaks the flow, so pin them here.
+  group('BookingService wire contracts', () {
+    late List<Map<String, dynamic>> sent;
+    late BookingService service;
+
+    setUp(() {
+      sent = [];
+      service = BookingService(ApiClient(
+        baseUrl: 'http://localhost:8080/api/v1',
+        httpClient: MockClient((req) async {
+          sent.add(jsonDecode(req.body) as Map<String, dynamic>);
+          return http.Response(
+            jsonEncode({'success': true, 'data': <String, dynamic>{}}),
+            200,
+            headers: {'content-type': 'application/json'},
+          );
+        }),
+      ));
+    });
+
+    test('geofence check-in sends driver_lat/driver_lng', () async {
+      await service.checkIn(
+        'b1',
+        method: 'geofence',
+        latitude: 12.9716,
+        longitude: 77.5946,
+      );
+      expect(sent.single['method'], 'geofence');
+      expect(sent.single['driver_lat'], 12.9716);
+      expect(sent.single['driver_lng'], 77.5946);
+      expect(sent.single.containsKey('latitude'), isFalse);
+      expect(sent.single.containsKey('longitude'), isFalse);
+    });
+
+    test('qr check-in sends qr_token only', () async {
+      await service.checkIn('b1', method: 'qr_code', qrToken: 'header.body.sig');
+      expect(sent.single['qr_token'], 'header.body.sig');
+      expect(sent.single.containsKey('pin_code'), isFalse);
+    });
+
+    test('blocked-spot report always carries a description', () async {
+      await service.reportBlockedSpot('b1');
+      expect(sent.single['reason'], 'spot_blocked');
+      expect((sent.single['description'] as String).length, greaterThanOrEqualTo(3));
+      expect(sent.single.containsKey('photos'), isFalse);
+    });
+
+    test('blocked-spot report maps photos to photo_evidence_url', () async {
+      await service.reportBlockedSpot(
+        'b1',
+        reason: 'overstay_refusal',
+        notes: '  Driver drove off  ',
+        photoUrls: ['https://example.in/evidence.jpg'],
+      );
+      expect(sent.single['description'], 'Driver drove off');
+      expect(sent.single['photo_evidence_url'], 'https://example.in/evidence.jpg');
     });
   });
 

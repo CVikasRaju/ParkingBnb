@@ -29,9 +29,9 @@ curl -s -X POST $API/bookings/$BK/check-in -H "$J" -H "Authorization: Bearer $DR
 echo "checked in: $BK"
 
 # Worker flags: same UPDATE the worker runs (checked_in -> overstayed) once end passes.
-sudo docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET expected_end_time = now() - interval '40 minutes', start_time = now() - interval '100 minutes', actual_check_in = now() - interval '95 minutes' WHERE id = '$BK';" > /dev/null
-sudo docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET status='overstayed' WHERE id='$BK' AND status='checked_in';" > /dev/null
-STATUS=$(sudo docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -t -c "SELECT status FROM bookings WHERE id='$BK';" | tr -d ' \n')
+docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET expected_end_time = now() - interval '40 minutes', start_time = now() - interval '100 minutes', actual_check_in = now() - interval '95 minutes' WHERE id = '$BK';" > /dev/null
+docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET status='overstayed' WHERE id='$BK' AND status='checked_in';" > /dev/null
+STATUS=$(docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -t -c "SELECT status FROM bookings WHERE id='$BK';" | tr -d ' \n')
 echo "status after worker-style flag: $STATUS"
 
 CO=$(curl -s -X POST $API/bookings/$BK/check-out -H "$J" -H "Authorization: Bearer $DRV_TOKEN")

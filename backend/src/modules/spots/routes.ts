@@ -12,10 +12,24 @@ const createSpotSchema = z.object({
   longitude: z.number().min(-180).max(180),
   hourly_rate: z.number().positive(),
   overstay_multiplier: z.number().min(1).max(9).optional(),
+  geo_radius_meters: z.number().optional(),
   entry_instructions: z.string().max(2000).optional(),
   has_iot_barrier: z.boolean().optional(),
   iot_device_key: z.string().max(128).optional(),
   photo_urls: z.array(z.string().url()).optional(),
+  photos: z.array(z.string().url()).optional(),
+  schedules: z
+    .array(
+      z.object({
+        dow: z.array(z.number().min(0).max(6)).optional(),
+        day_of_week: z.number().min(0).max(6).optional(),
+        start_time: z.string().optional(),
+        end_time: z.string().optional(),
+        open_time: z.string().optional(),
+        close_time: z.string().optional(),
+      })
+    )
+    .optional(),
 });
 
 const updateSpotSchema = createSpotSchema.partial();
@@ -23,7 +37,8 @@ const updateSpotSchema = createSpotSchema.partial();
 const searchSchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lng: z.coerce.number().min(-180).max(180),
-  radius: z.coerce.number().int().positive().max(50_000).default(3000),
+  radius: z.coerce.number().int().positive().max(50_000).optional(),
+  radius_m: z.coerce.number().int().positive().max(50_000).optional(),
 });
 
 async function insertSpotPhotos(spotId: string, urls: string[]): Promise<void> {
@@ -35,10 +50,32 @@ async function insertSpotPhotos(spotId: string, urls: string[]): Promise<void> {
   }
 }
 
+async function insertSpotSchedules(
+  spotId: string,
+  schedules: NonNullable<z.infer<typeof createSpotSchema>["schedules"]>
+): Promise<void> {
+  for (const s of schedules) {
+    const open = s.open_time ?? s.start_time ?? "00:00";
+    const close = s.close_time ?? s.end_time ?? "23:59";
+    const days: number[] = Array.isArray(s.dow)
+      ? s.dow
+      : s.day_of_week !== undefined
+      ? [s.day_of_week]
+      : [0, 1, 2, 3, 4, 5, 6];
+    for (const day of days) {
+      await db.query(
+        "INSERT INTO spot_schedules (spot_id, day_of_week, open_time, close_time) VALUES ($1, $2, $3, $4)",
+        [spotId, day, open, close]
+      );
+    }
+  }
+}
+
 export async function spotRoutes(app: FastifyInstance): Promise<void> {
   /** Sprint 1: provider creates a listing (photos, geo point, price). */
   app.post("/spots", { onRequest: [requireRole("provider")] }, async (req) => {
     const body = createSpotSchema.parse(req.body);
+    const photos = body.photo_urls ?? body.photos ?? [];
     const spot = await createSpot({
       providerId: req.auth!.sub,
       title: body.title,
@@ -51,16 +88,20 @@ export async function spotRoutes(app: FastifyInstance): Promise<void> {
       hasIotBarrier: body.has_iot_barrier,
       iotDeviceKey: body.iot_device_key,
     });
-    if (body.photo_urls && body.photo_urls.length > 0) {
-      await insertSpotPhotos(spot.id, body.photo_urls);
+    if (photos.length > 0) {
+      await insertSpotPhotos(spot.id, photos);
     }
-    return { success: true, data: { ...spot, photo_urls: body.photo_urls ?? [] } };
+    if (body.schedules && body.schedules.length > 0) {
+      await insertSpotSchedules(spot.id, body.schedules);
+    }
+    return { success: true, data: { ...spot, photo_urls: photos } };
   });
 
   /** Sprint 1: radial search via search_nearby_parking(). Public read. */
   app.get("/spots/search", async (req) => {
-    const { lat, lng, radius } = searchSchema.parse(req.query);
-    const spots = await searchSpots(lat, lng, radius);
+    const query = searchSchema.parse(req.query);
+    const radius = query.radius ?? query.radius_m ?? 3000;
+    const spots = await searchSpots(query.lat, query.lng, radius);
     return { success: true, data: spots };
   });
 

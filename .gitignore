@@ -4,6 +4,8 @@ dist/
 coverage/
 *.log
 .env
+# Stray lockfile from running npm at the repo root (backend/ has its own).
+/package-lock.json
 
 # Flutter
 client/.dart_tool/

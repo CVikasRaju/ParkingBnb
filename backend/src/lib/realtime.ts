@@ -10,24 +10,55 @@ const CHANNEL = "parkpeer:rt";
 const emitter = new EventEmitter();
 emitter.setMaxListeners(1000);
 
-let subscribed = false;
+let receiverReady: Promise<void> | null = null;
 
 export type RealtimeEvent =
   | { type: "spot_status"; spotId: string; status: "locked" | "available" | "maintenance" }
   | { type: "driver_alert"; driverId: string; alert: string; data?: Record<string, unknown> };
 
-function startRedisReceiver(): void {
-  if (subscribed) return;
-  subscribed = true;
-  const sub = redis.duplicate();
-  sub.subscribe(CHANNEL);
-  sub.on("message", (_ch, raw) => {
-    try {
-      emitter.emit("event", JSON.parse(raw) as RealtimeEvent);
-    } catch {
-      /* ignore malformed frames */
-    }
-  });
+/**
+ * Subscribe the in-process hub to Redis pub/sub exactly once.
+ *
+ * The promise is cached and awaited so a publish issued just after boot —
+ * before the subscriber handshake completes — is never dropped. Redis pub/sub
+ * has no replay: a `spot:{id} -> locked` frame emitted in that window would
+ * otherwise leave every connected map screen showing a stale `available` pin.
+ */
+function ensureRedisReceiver(): Promise<void> {
+  if (!receiverReady) {
+    const sub = redis.duplicate();
+    sub.on("message", (_ch, raw) => {
+      try {
+        emitter.emit("event", JSON.parse(raw) as RealtimeEvent);
+      } catch {
+        /* ignore malformed frames */
+      }
+    });
+    // A dropped subscriber connection must not crash the process.
+    sub.on("error", (err: Error) => {
+      console.error("[realtime] subscriber error:", err.message);
+    });
+    receiverReady = sub
+      .subscribe(CHANNEL)
+      .then(() => undefined)
+      .catch((err: Error) => {
+        receiverReady = null; // let the next caller retry
+        throw err;
+      });
+  }
+  return receiverReady;
+}
+
+/**
+ * Await the Redis subscriber during boot so the gateway can broadcast from the
+ * very first request. Never fatal: realtime is a best-effort side channel.
+ */
+export async function initRealtime(): Promise<void> {
+  try {
+    await ensureRedisReceiver();
+  } catch (err) {
+    console.error("[realtime] could not subscribe — realtime updates disabled", err);
+  }
 }
 
 export function publishRealtime(event: RealtimeEvent): void {
@@ -35,7 +66,7 @@ export function publishRealtime(event: RealtimeEvent): void {
 }
 
 export function onRealtime(listener: (event: RealtimeEvent) => void): () => void {
-  startRedisReceiver();
+  void ensureRedisReceiver().catch(() => {});
   emitter.on("event", listener);
   return () => emitter.off("event", listener);
 }

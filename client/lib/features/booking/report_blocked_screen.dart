@@ -79,14 +79,20 @@ class _ReportBlockedSpotScreenState extends State<ReportBlockedSpotScreen> {
                       children: [
                         Text('Reason', style: theme.textTheme.titleMedium),
                         const SizedBox(height: 8),
-                        for (final (value, label) in _reasons)
-                          RadioListTile<String>(
-                            dense: true,
-                            value: value,
-                            groupValue: _selectedReason,
-                            title: Text(label),
-                            onChanged: (v) => setState(() => _selectedReason = v),
+                        RadioGroup<String>(
+                          groupValue: _selectedReason,
+                          onChanged: (v) => setState(() => _selectedReason = v),
+                          child: Column(
+                            children: [
+                              for (final (value, label) in _reasons)
+                                RadioListTile<String>(
+                                  dense: true,
+                                  value: value,
+                                  title: Text(label),
+                                ),
+                            ],
                           ),
+                        ),
                       ],
                     ),
                   ),

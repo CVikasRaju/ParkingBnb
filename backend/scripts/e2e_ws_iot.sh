@@ -2,6 +2,9 @@ set -e
 API=http://localhost:8080/api/v1
 J='Content-Type: application/json'
 STAMP=$(date +%s)
+# Resolve the backend root so the node WS probe can resolve the `ws` module
+# regardless of where the repo is cloned (no absolute container paths).
+BACKEND_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 login() { curl -s -X POST $API/auth/login -H "$J" -d "{\"email\":\"$1\",\"password\":\"secret123\"}" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['token'])"; }
 PROV_TOKEN=$(login alice@example.com)
@@ -42,16 +45,20 @@ echo "confirmed: $(echo "$CONF" | python3 -c "import sys,json;print(json.load(sy
 echo ""
 echo "=== B. WebSocket: subscribe to spot FIRST, then lock/unlock via lifecycle ==="
 cat > /tmp/ws_test.js <<'EOF'
+const fs = require("fs");
 const WebSocket = require("ws");
 const ws = new WebSocket("ws://localhost:8080/ws");
 const SPOT = process.argv[2];
-const targetLocked = process.argv[3] === "true";
+const READY_FILE = process.argv[4] || "/tmp/ws_ready";
 let gotLocked = false, gotAvailable = false;
 function maybeDone(){
   if (gotLocked && gotAvailable) { ws.close(); }
 }
 ws.on("open", () => {
   ws.send(JSON.stringify({ op: "subscribe_spot", spot_id: SPOT }));
+  // Signal the shell so it only mutates the spot AFTER we are subscribed:
+  // Redis pub/sub has no replay, so an early lock would be lost.
+  fs.writeFileSync(READY_FILE, "1");
   console.log("WS_OPEN");
 });
 ws.on("message", (d) => {
@@ -80,9 +87,13 @@ SPOTW=$(curl -s -X POST $API/spots -H "$J" -H "Authorization: Bearer $PROV_TOKEN
   "schedules":[{"dow":[0,1,2,3,4,5,6],"start_time":"00:00","end_time":"23:59"}]
 }')
 SPOTW_ID=$(echo "$SPOTW" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['id'])")
-NODE_PATH=/workspace/project/backend/node_modules node /tmp/ws_test.js "$SPOTW_ID" "true" &
+WS_READY="/tmp/ws_ready_$STAMP"
+rm -f "$WS_READY"
+NODE_PATH="$BACKEND_ROOT/node_modules" node /tmp/ws_test.js "$SPOTW_ID" "true" "$WS_READY" &
 WS_PID=$!
-sleep 1.2
+# Wait for the client to send its subscribe frame, then let the server register it.
+for _ in $(seq 1 100); do [ -f "$WS_READY" ] && break; sleep 0.1; done
+sleep 0.5
 
 LOCKW=$(curl -s -X POST $API/bookings/lock -H "$J" -H "Authorization: Bearer $DRV_TOKEN" -d "{\"spot_id\":\"$SPOTW_ID\",\"vehicle_id\":\"$VEH_ID\",\"start_time\":\"$(date -u -d '+5 min' +%Y-%m-%dT%H:%M:%S.000Z)\",\"duration_hours\":1}")
 echo "lock on WS spot: $(echo "$LOCKW" | head -c 120)"
@@ -103,9 +114,15 @@ CANCEL=$(curl -s -X POST $API/bookings/$BKW/cancel -H "$J" -H "Authorization: Be
 echo "cancel WS-spot booking: $(echo "$CANCEL" | head -c 120)"
 
 sleep 1
-echo "--- checkout via barrier exit (vehicle_departure) closes the loop on the IoT spot ---"
-GATEX=$(curl -s -X POST http://localhost:8080/api/v1/webhooks/gate -H "$J" -H "X-Device-Key: dev_e2e_gate_$STAMP" -d "{\"event_type\":\"vehicle_departure\",\"license_plate\":\"$PLATE\"}")
+echo "--- checkout via barrier exit (vehicle_departure) closes the loop on the IoT spot (API_SPEC §4 alias: /webhooks/iot-barrier) ---"
+GATEX=$(curl -s -X POST $API/webhooks/iot-barrier -H "$J" -H "X-Device-Key: dev_e2e_gate_$STAMP" -d "{\"event_type\":\"vehicle_departure\",\"license_plate\":\"$PLATE\"}")
 echo "$GATEX"
 sleep 1.5
-wait $WS_PID || echo "ws done"
+# `wait` under `set -e` would abort; assert instead so a WS regression fails loudly.
+if wait "$WS_PID"; then
+  echo "WS_ASSERTIONS_OK"
+else
+  echo "WS_ASSERTIONS_FAILED (locked/available events not observed)"
+  exit 1
+fi
 echo "WS_DONE"

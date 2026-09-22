@@ -118,27 +118,23 @@ class _ActivePassScreenState extends State<ActivePassScreen> {
               subtitle: const Text('Ends the session and settles escrow'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
-                final navigator = Navigator.of(context);
                 final res = await _booking.checkOut(widget.bookingId);
-                if (!mounted) return;
-                // ignore: use_build_context_synchronously - guard is mounted check
-                navigator.push(
-                  DialogRoute<void>(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('Checked out'),
-                      content: Text(
-                        'Total charged '
-                        '₹${(res['breakdown']?['total_charged'] ?? '0')}. '
-                        'Thanks for parking!',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('OK'),
-                        ),
-                      ],
+                if (!context.mounted) return;
+                await showDialog<void>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Checked out'),
+                    content: Text(
+                      'Total charged '
+                      '₹${(res['breakdown']?['total_charged'] ?? '0')}. '
+                      'Thanks for parking!',
                     ),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('OK'),
+                      ),
+                    ],
                   ),
                 );
               },

@@ -129,8 +129,9 @@ class _LockSheetState extends State<LockSheet> {
         durationHours: _durationHours,
       );
 
+      if (!mounted) return;
+
       // Fast countdown in the sheet (drivers pay quick), then confirm.
-      // ignore: use_build_context_synchronously - begin a modal after the lock
       final confirm = await showModalBottomSheet<Map<String, dynamic>>(
         context: context,
         barrierColor: Colors.black45,

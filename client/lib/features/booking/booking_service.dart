@@ -78,6 +78,10 @@ class BookingService {
   }
 
   /// `POST /bookings/{id}/check-in` — any of the verification methods.
+  ///
+  /// Geofence coordinates travel as `driver_lat`/`driver_lng` per the backend
+  /// check-in schema; the QR token field is `qr_token` (the QR *endpoint*
+  /// returns `dynamic_qr_payload`).
   Future<Map<String, dynamic>> checkIn(
     String bookingId, {
     String? method,
@@ -90,8 +94,8 @@ class BookingService {
       'method': method ?? _pickMethod(),
       if (pinCode != null) 'pin_code': pinCode,
       if (qrToken != null) 'qr_token': qrToken,
-      if (latitude != null) 'latitude': latitude,
-      if (longitude != null) 'longitude': longitude,
+      if (latitude != null) 'driver_lat': latitude,
+      if (longitude != null) 'driver_lng': longitude,
     });
     return data as Map<String, dynamic>;
   }
@@ -117,18 +121,32 @@ class BookingService {
   }
 
   /// `POST /disputes/report` — Report Blocked Spot flow (auto-refund).
+  ///
+  /// The backend requires a `description` (≥ 3 chars) and accepts a single
+  /// `photo_evidence_url`, so a reason-derived default is sent whenever the
+  /// driver leaves the notes field empty.
   Future<Map<String, dynamic>> reportBlockedSpot(
     String bookingId, {
     String reason = 'spot_blocked',
     List<String> photoUrls = const [],
     String? notes,
   }) async {
+    final trimmedNotes = notes?.trim() ?? '';
     final data = await _api.post('disputes/report', body: {
       'booking_id': bookingId,
       'reason': reason,
-      if (photoUrls.isNotEmpty) 'photos': photoUrls,
-      if (notes != null) 'description': notes,
+      'description':
+          trimmedNotes.isNotEmpty ? trimmedNotes : _defaultDescription(reason),
+      if (photoUrls.isNotEmpty) 'photo_evidence_url': photoUrls.first,
     });
     return data as Map<String, dynamic>;
   }
+
+  /// Notes are optional in the UI, but `disputes.description` is not nullable.
+  static String _defaultDescription(String reason) => switch (reason) {
+        'overstay_refusal' => 'Driver refused to pay the overstay charge.',
+        'damage' => 'Damage found at the spot.',
+        'other' => 'Issue reported from the ParkPeer app.',
+        _ => 'The spot was blocked when I arrived.',
+      };
 }

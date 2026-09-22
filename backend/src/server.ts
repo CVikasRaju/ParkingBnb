@@ -12,6 +12,7 @@ import { webhookRoutes } from "./modules/webhooks/routes";
 import { realtimeRoutes } from "./modules/realtime/routes";
 import { paymentRoutes } from "./modules/payments/routes";
 import { initFcm } from "./lib/notifications";
+import { initRealtime } from "./lib/realtime";
 
 export function buildServer() {
   const app = Fastify({
@@ -77,6 +78,9 @@ export function buildServer() {
 
 async function main(): Promise<void> {
   await initFcm();
+  // Subscribe to Redis pub/sub before accepting traffic: the WS gateway must be
+  // able to broadcast spot status changes from the very first request.
+  await initRealtime();
 
   const app = buildServer();
   try {

@@ -92,12 +92,13 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /**
-   * IoT barrier / ANPR — high-tech check-in (ARCHITECTURE §4 Tier 2).
+   * IoT barrier / ANPR — high-tech check-in (ARCHITECTURE §4 Tier 2 & API_SPEC §4).
+   * Supports both /webhooks/gate and /webhooks/iot-barrier.
    * `X-Device-Key` must match the spot's `iot_device_key`. A `plate_detected`
    * event whose plate matches an active reserved booking opens the gate and
-   * starts the session; `exit_detected` mirrors an IoT check-out.
+   * starts the session; `exit_detected` or `vehicle_departure` mirrors an IoT check-out.
    */
-  app.post("/webhooks/gate", async (req, reply) => {
+  const handleGateWebhook = async (req: any, reply: any) => {
     const deviceKey = req.headers["x-device-key"] as string | undefined;
     if (!deviceKey) throw Errors.unauthorized("Missing X-Device-Key header");
     const body = iotHookSchema.parse(req.body);
@@ -140,5 +141,8 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       broadcastSpotStatus(spot.id, "locked");
     }
     return reply.status(200).send({ received: true });
-  });
+  };
+
+  app.post("/webhooks/gate", handleGateWebhook);
+  app.post("/webhooks/iot-barrier", handleGateWebhook);
 }

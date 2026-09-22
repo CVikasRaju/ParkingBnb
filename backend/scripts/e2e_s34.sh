@@ -36,7 +36,7 @@ echo "checked in"
 
 # Backdate the session to force 50 min of overstay beyond expected_end.
 # goal: actual parked = 170 min (now - check_in), booked = 120 min => 50 over
-sudo docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET start_time = now() - interval '290 minutes', expected_end_time = now() - interval '170 minutes', actual_check_in = now() - interval '170 minutes' WHERE id = '$BK';" > /dev/null
+docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "UPDATE bookings SET start_time = now() - interval '290 minutes', expected_end_time = now() - interval '170 minutes', actual_check_in = now() - interval '170 minutes' WHERE id = '$BK';" > /dev/null
 CO=$(curl -s -X POST $API/bookings/$BK/check-out -H "$J" -H "Authorization: Bearer $DRV_TOKEN")
 echo "checkout after overstay:"; echo "$CO" | python3 -m json.tool
 # Expected: overstay 50 min > 15 grace -> ceil(50/60)=1h * 100 * 3 = 300
@@ -65,7 +65,7 @@ DIS=$(curl -s -X POST $API/disputes/report -H "$J" -H "Authorization: Bearer $DR
 echo "$DIS" | head -c 300; echo
 DIS_ID=$(echo "$DIS" | python3 -c "import sys,json;print(json.load(sys.stdin)['data']['dispute_id'])")
 echo "=== C2. Refund ledger entry for driver ==="
-sudo docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "SELECT booking_id, amount, created_at FROM refund_ledger WHERE booking_id = '$BK3';"
+docker exec parkpeer-postgres psql -U parkpeer -d parkpeer -c "SELECT booking_id, amount, created_at FROM refund_ledger WHERE booking_id = '$BK3';"
 
 echo "=== C3. Admin resolves dispute -> refund confirmed ==="
 RES=$(curl -s -X PATCH $API/admin/disputes/$DIS_ID -H "$J" -H "Authorization: Bearer $ADM_TOKEN" -d '{"action":"refund","admin_notes":"Verified via photos"}')
