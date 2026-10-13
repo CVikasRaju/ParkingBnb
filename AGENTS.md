@@ -24,7 +24,7 @@ bash scripts/e2e_ws_iot.sh         # WS + IoT webhook
 Live server URL: `http://localhost:8080` (`API_PREFIX=/api/v1`). Dev creds: `alice@example.com`/`bob@example.com`/`admin@example.com`, password `secret123`, roles via register `role`.
 
 ### Client
-Flutter SDK at `/tmp/flutter/bin` (not system-installed).
+Flutter SDK at `C:/src/flutter/bin` (not system-installed). Export `PATH=/c/src/flutter/bin:$PATH` before Flutter commands.
 ```bash
 export PATH=/tmp/flutter/bin:$PATH
 cd client
