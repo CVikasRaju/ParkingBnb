@@ -1,12 +1,11 @@
 import 'token_store_stub.dart' as impl
-    if (dart.library.io) 'token_store_io.dart'
-    if (dart.library.html) 'token_store_web.dart';
+    if (dart.library.io) 'token_store_io.dart';
 
 /// Platform-adaptive JWT/role storage.
 ///
-/// Native platforms use FlutterSecureStorage (Keychain/Keystore). The web uses
-/// `window.localStorage`, the supported storage primitive there, avoiding
-/// web-secure-storage bootstrap failures in browsers.
+/// Native platforms use FlutterSecureStorage (Keychain/Keystore). The Flutter
+/// web target was removed on request, so only the io implementation and a
+/// no-op stub (unit-test VM) are needed.
 ///
 /// The conditional import binds `impl.TokenFactory` to a concrete
 /// implementation for the current compile target.

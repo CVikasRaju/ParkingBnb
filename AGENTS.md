@@ -30,8 +30,9 @@ export PATH=/tmp/flutter/bin:$PATH
 cd client
 flutter pub get
 flutter analyze     # clean except 2 info lints (unavoidable modal-after-await)
-flutter test        # 6 unit tests (haversine, geofence, JWT payload decode)
-flutter build web --release
+flutter test        # 10 unit tests (contract + haversine, geofence, JWT payload decode)
+flutter build apk --release   # universal APK → client/build/app/outputs/flutter-apk/app-release.apk
+flutter build appbundle --release  # Play Store upload bundle
 ```
 
 ## Key invariants
@@ -48,4 +49,4 @@ flutter build web --release
 - Backend default `PAYMENT_PROVIDER=mock` — swap to `razorpay`/`stripe` for real escrow.
 - Android manifest has `android:usesCleartextTraffic="true"` for local dev over http; iOS Info.plist has camera/location usage descriptions.
 - Docs dir `docs/` is committed as provided — treat as read-only.
-- Web token storage is platform-adaptive (`lib/core/token_store*.dart`): native uses secure storage, web uses `localStorage` (avoids the `flutter_secure_storage` web plugin bootstrap failure that left a blank white canvas). Web build defaults to `http://localhost:8080/api/v1`.
+- Release builds are Android-only: `android/upload-keystore.jks` (git-ignored, upload key) wired via git-ignored `android/key.properties`. Keep `applicationId com.parkpeer.parkpeer`. Flutter web target was removed on request — no `client/web/`, no web token store.
