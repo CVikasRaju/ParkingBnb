@@ -26,7 +26,18 @@ class ApiClient {
   String? _token;
   String? _role;
 
+  /// Set at build time, never at runtime:
+  ///
+  ///     flutter build apk --dart-define=API_BASE_URL=http://192.168.1.5:8080/api/v1
+  ///
+  /// This matters because a physical phone has no `localhost` of ours. The
+  /// built-in defaults below only make sense on the emulator (`10.0.2.2`) or
+  /// when the phone is the same machine; without an override every request from
+  /// a real device would go to the phone itself and fail.
+  static const String _envBaseUrl = String.fromEnvironment('API_BASE_URL');
+
   static String get _defaultBaseUrl {
+    if (_envBaseUrl.isNotEmpty) return _envBaseUrl;
     if (kIsWeb) return 'http://localhost:8080/api/v1';
     if (Platform.isAndroid) {
       // 10.0.2.2 = host loopback from the Android emulator.
