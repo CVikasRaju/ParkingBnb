@@ -1,0 +1,371 @@
+@import "tailwindcss";
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   ParkPeer design tokens
+   Dark, high-contrast, "night city" palette: deep ink surfaces, an electric
+   mint for availability/primary actions, azure for informational accents and
+   amber for overstay/warning states.
+   ──────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --color-ink-950: #04060c;
+  --color-ink-900: #070b14;
+  --color-ink-850: #0a1120;
+  --color-ink-800: #0e1626;
+  --color-ink-700: #16203a;
+  --color-ink-600: #1f2c4a;
+  --color-ink-500: #2c3c60;
+
+  --color-mist-50: #f2f6ff;
+  --color-mist-100: #e3eaf9;
+  --color-mist-200: #cbd7ee;
+  --color-mist-300: #b3c2dd;
+  --color-mist-400: #8494b4;
+  --color-mist-500: #61708f;
+
+  --color-brand-200: #b6ffe9;
+  --color-brand-300: #7dffdb;
+  --color-brand-400: #35f0be;
+  --color-brand-500: #0dd9a3;
+  --color-brand-600: #06b183;
+  --color-brand-700: #068a68;
+
+  --color-azure-200: #cfe0ff;
+  --color-azure-300: #9dc0ff;
+  --color-azure-400: #6ba1ff;
+  --color-azure-500: #3b7bff;
+  --color-azure-600: #245ae0;
+
+  --color-flare-300: #ffd98a;
+  --color-flare-400: #ffc247;
+  --color-flare-500: #ffab1f;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+
+  --animate-float: float 8s ease-in-out infinite;
+  --animate-float-slow: float 13s ease-in-out infinite;
+  --animate-marquee: marquee 40s linear infinite;
+  --animate-pulse-ring: pulse-ring 2.6s ease-out infinite;
+  --animate-shimmer: shimmer 3s linear infinite;
+  --animate-blink: blink 1.7s steps(2, start) infinite;
+  --animate-drift: drift 26s linear infinite;
+  --animate-rise: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-14px);
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    transform: scale(0.75);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -180% 0;
+  }
+  100% {
+    background-position: 180% 0;
+  }
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@keyframes drift {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 400px 400px;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Base ─────────────────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    border-color: color-mix(in srgb, var(--color-ink-600) 60%, transparent);
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-mist-100);
+    font-family: var(--font-sans);
+    overscroll-behavior-y: none;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-brand-400) 32%, transparent);
+    color: #fff;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ink-950);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 9999px;
+    border: 2px solid var(--color-ink-950);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-500);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+/* ── Components ───────────────────────────────────────────────────────────── */
+@layer components {
+  .glass {
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--color-ink-800) 88%, transparent),
+      color-mix(in srgb, var(--color-ink-900) 92%, transparent)
+    );
+    border: 1px solid color-mix(in srgb, var(--color-ink-500) 55%, transparent);
+    backdrop-filter: blur(14px);
+  }
+
+  .glass-strong {
+    background: color-mix(in srgb, var(--color-ink-850) 96%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-ink-500) 70%, transparent);
+    backdrop-filter: blur(22px);
+  }
+
+  /* Fine background grid used behind sections and the 3D hero. */
+  .grid-lines {
+    background-image: linear-gradient(
+        to right,
+        color-mix(in srgb, var(--color-ink-600) 42%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--color-ink-600) 42%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 54px 54px;
+  }
+
+  .grid-lines-fade {
+    mask-image: radial-gradient(
+      ellipse 78% 62% at 50% 38%,
+      #000 25%,
+      transparent 78%
+    );
+  }
+
+  .text-gradient-brand {
+    background: linear-gradient(
+      100deg,
+      var(--color-brand-300),
+      var(--color-brand-500) 42%,
+      var(--color-azure-400)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .text-gradient-mist {
+    background: linear-gradient(
+      180deg,
+      #ffffff 12%,
+      color-mix(in srgb, var(--color-mist-300) 82%, transparent)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Primary action button (mint). */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    background: linear-gradient(
+      120deg,
+      var(--color-brand-400),
+      var(--color-brand-600)
+    );
+    color: var(--color-ink-950);
+    font-weight: 600;
+    padding: 0.75rem 1.4rem;
+    box-shadow: 0 12px 40px -14px color-mix(in srgb, var(--color-brand-400) 78%, transparent);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 18px 50px -14px color-mix(in srgb, var(--color-brand-400) 92%, transparent);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+
+  /* Secondary / ghost action button. */
+  .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in srgb, var(--color-ink-500) 80%, transparent);
+    background: color-mix(in srgb, var(--color-ink-800) 60%, transparent);
+    color: var(--color-mist-100);
+    font-weight: 500;
+    padding: 0.7rem 1.3rem;
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+  }
+  .btn-ghost:hover {
+    border-color: color-mix(in srgb, var(--color-brand-400) 60%, transparent);
+    background: color-mix(in srgb, var(--color-ink-700) 72%, transparent);
+    transform: translateY(-1px);
+  }
+
+  /* Small pill used for statuses and tags. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in srgb, var(--color-ink-500) 70%, transparent);
+    background: color-mix(in srgb, var(--color-ink-800) 70%, transparent);
+    padding: 0.25rem 0.7rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+  }
+
+  .card {
+    border-radius: 1.25rem;
+    background: linear-gradient(
+      165deg,
+      color-mix(in srgb, var(--color-ink-800) 82%, transparent),
+      color-mix(in srgb, var(--color-ink-900) 94%, transparent)
+    );
+    border: 1px solid color-mix(in srgb, var(--color-ink-600) 65%, transparent);
+    transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .card:hover {
+    border-color: color-mix(in srgb, var(--color-brand-400) 42%, transparent);
+    box-shadow: 0 24px 60px -30px color-mix(in srgb, var(--color-brand-400) 45%, transparent);
+  }
+
+  /* Skeleton shimmer shown while a 3D scene boots. */
+  .shimmer {
+    background-image: linear-gradient(
+      100deg,
+      transparent 20%,
+      color-mix(in srgb, var(--color-brand-400) 12%, transparent) 45%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: var(--animate-shimmer);
+  }
+}
+
+/* ── Leaflet: force the OSM tiles into the dark theme ─────────────────────── */
+.leaflet-container {
+  background: var(--color-ink-900);
+  font-family: var(--font-sans);
+  outline: none;
+}
+
+.leaflet-tile-pane {
+  filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.88)
+    saturate(0.75);
+}
+
+.leaflet-control-attribution {
+  background: color-mix(in srgb, var(--color-ink-950) 80%, transparent) !important;
+  color: var(--color-mist-500) !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: var(--color-mist-400) !important;
+}
+
+.leaflet-bar,
+.leaflet-bar a {
+  background: var(--color-ink-800) !important;
+  color: var(--color-mist-200) !important;
+  border-color: var(--color-ink-600) !important;
+}
+.leaflet-bar a:hover {
+  background: var(--color-ink-700) !important;
+}
+
+.parkpeer-marker {
+  background: none !important;
+  border: none !important;
+}
