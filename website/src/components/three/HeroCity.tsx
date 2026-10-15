@@ -1,7 +1,7 @@
 "use client";
 
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 import { mulberry32 } from "@/lib/random";
@@ -429,6 +429,16 @@ export default function HeroCity({
   const buildings = useSkyline();
   const [hovered, setHovered] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [autoIndex, setAutoIndex] = useState(0);
+
+  // Ambient parking: while the visitor has not chosen a bay themselves, the car
+  // keeps driving up to the next one so the hero is never a still photograph.
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setAutoIndex((index) => (index + 1) % heroBays.length);
+    }, 5200);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleHover = useCallback(
     (id: string | null) => {
@@ -447,9 +457,11 @@ export default function HeroCity({
     [onSelect],
   );
 
-  const targetIndex = selected ? heroBays.findIndex((b) => b.id === selected) : -1;
-  const targetX =
-    targetIndex >= 0 ? BAY_START_X + targetIndex * BAY_GAP : -5.6;
+  // A click always wins; otherwise the ambient car keeps cycling the row.
+  const targetIndex = selected
+    ? heroBays.findIndex((b) => b.id === selected)
+    : autoIndex;
+  const targetX = BAY_START_X + targetIndex * BAY_GAP;
 
   return (
     <>
