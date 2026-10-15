@@ -37,6 +37,21 @@ android {
         versionName = flutter.versionName
     }
 
+    // Release signing config. Keys are read from the git-ignored
+    // `key.properties` (see the root of this android/ folder).
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                // `key.properties` lives in android/, so the storeFile path is
+                // resolved against the root project (not this app/ module).
+                storeFile = rootProject.file(keystoreProperties["storeFile"])
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
             // Signed with the upload key so the Play Store accepts the bundle;
