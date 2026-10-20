@@ -1,0 +1,108 @@
+# ParkPeer — production stack.
+#
+# Two ways to run it, and they can be mixed:
+#
+#   1. Managed data plane (the default): Postgres and Redis live outside
+#      (Supabase/Neon + Upstash/Redis Cloud). Only `api` and `worker` start,
+#      reading DATABASE_URL / REDIS_URL from backend/.env.production.
+#
+#          docker compose -f docker-compose.prod.yml up -d --build
+#
+#   2. Self-hosted data plane: add the bundled Postgres+PostGIS and Redis.
+#
+#          docker compose -f docker-compose.prod.yml --profile local-db up -d --build
+#
+#      (Then point DATABASE_URL at `postgres://parkpeer:…@postgres:5432/parkpeer`
+#      and REDIS_URL at `redis://redis:6379`.)
+#
+# Migrations are a deploy step, never a start-up step — two API replicas booting
+# at once must not race on DDL:
+#
+#     docker compose -f docker-compose.prod.yml --profile tools run --rm migrate
+#
+# Before the first `up`: copy backend/.env.example to backend/.env.production and
+# fill it in (see DEPLOYMENT.md). NODE_ENV=production makes the server
+# refuse to boot on a placeholder secret or a wildcard CORS origin.
+
+name: parkpeer
+
+services:
+  postgres:
+    profiles: ["local-db"]
+    image: postgis/postgis:15-3.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: parkpeer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+      POSTGRES_DB: parkpeer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U parkpeer -d parkpeer"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    profiles: ["local-db"]
+    image: redis:7.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ./backend
+      target: runtime
+    restart: unless-stopped
+    env_file: [./backend/.env.production]
+    environment:
+      # Belt and braces: the worker is its own service below, and two sweepers
+      # would double-send overstay pushes.
+      OVERSTAY_WORKER: "0"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      redis:
+        condition: service_healthy
+        required: false
+
+  worker:
+    build:
+      context: ./backend
+      target: worker
+    restart: unless-stopped
+    env_file: [./backend/.env.production]
+    environment:
+      OVERSTAY_WORKER: "1"
+    # Exactly one: the sweep is cheap, and duplicated work is worse than latency.
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres:
+        condition: service_started
+        required: false
+      redis:
+        condition: service_started
+        required: false
+
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: ./backend
+      target: migrate
+    env_file: [./backend/.env.production]
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:

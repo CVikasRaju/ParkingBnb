@@ -11,6 +11,7 @@ import {
   computeBaseAmount,
   computeCheckoutBreakdown,
   computeOverstayFee,
+  computeEnergyFee,
 } from "../src/lib/money";
 import { assertTransition, isTerminal, FSM_EDGES } from "../src/lib/fsm";
 import { haversineMeters, isWithinGeofence } from "../src/lib/geo";
@@ -107,6 +108,60 @@ describe("money math (ARCHITECTURE §5)", () => {
     });
     expect(a.overstay_amount).toBe(0);
     expect(c.overstay_amount).toBe(200);
+  });
+
+  it("calculates metered EV charging fee correctly", () => {
+    // 25.5 kWh @ ₹16/kWh = 408
+    expect(computeEnergyFee(25.5, 16)).toBe(408);
+    expect(computeEnergyFee(0, 16)).toBe(0);
+    expect(computeEnergyFee(10, 0)).toBe(0);
+  });
+
+  it("adds metered energy into checkout breakdown and splits 85/15", () => {
+    // Base parking: 160
+    // Overstay: 0
+    // Energy: 20 kWh @ ₹15/kWh = 300
+    // Total gross: 460
+    // Platform fee (15%): 69
+    // Provider earnings (85%): 391
+    const b = computeCheckoutBreakdown({
+      base_amount: 160,
+      hourly_rate: 80,
+      overstay_multiplier: 2,
+      parked_minutes: 120,
+      booked_minutes: 120,
+      energy_kwh: 20,
+      energy_rate_per_kwh: 15,
+    });
+    expect(b.energy_amount).toBe(300);
+    expect(b.overstay_amount).toBe(0);
+    expect(b.gross_amount).toBe(460);
+    expect(b.platform_fee).toBe(69);
+    expect(b.provider_earnings).toBe(391);
+  });
+
+  it("combines base + overstay + EV charging in total settlement", () => {
+    // Base: 100
+    // Overstay: 30m over -> ceil(30/60)=1h * 50 * 2 = 100
+    // Energy: 15 kWh @ ₹12 = 180
+    // Gross: 100 + 100 + 180 = 380
+    // 15% platform: 57
+    // 85% provider: 323
+    const b = computeCheckoutBreakdown({
+      base_amount: 100,
+      hourly_rate: 50,
+      overstay_multiplier: 2,
+      parked_minutes: 150,
+      booked_minutes: 120,
+      energy_kwh: 15,
+      energy_rate_per_kwh: 12,
+    });
+    expect(b.base_amount).toBe(100);
+    expect(b.overstay_amount).toBe(100);
+    expect(b.energy_amount).toBe(180);
+    expect(b.gross_amount).toBe(380);
+    expect(b.platform_fee).toBe(57);
+    expect(b.provider_earnings).toBe(323);
   });
 });
 

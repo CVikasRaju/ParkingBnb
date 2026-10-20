@@ -74,6 +74,32 @@ class _LockSheetState extends State<LockSheet> {
                   style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
+          if (widget.spot['category'] == 'ev_p2p_charge' ||
+              widget.spot['category'] == 'commercial_cpo' ||
+              (widget.spot['power_output_kw'] as num? ?? 0) > 0)
+            Container(
+              margin: const EdgeInsets.only(top: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.green.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.shade300),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.flash_on, color: Colors.green, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '⚡ Smart EV Socket: ${widget.spot['power_output_kw'] ?? 7.4} kW (${widget.spot['plug_type'] ?? 'Type-2'})\n'
+                      'Energy tariff: ₹${widget.spot['energy_rate_per_kwh'] ?? 15}/kWh (metered at checkout)',
+                      style: const TextStyle(fontSize: 12, color: Colors.black87),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           const SizedBox(height: 16),
           TextField(
             decoration: const InputDecoration(

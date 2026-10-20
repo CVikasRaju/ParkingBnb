@@ -22,6 +22,8 @@ CREATE TYPE booking_status AS ENUM (
 );
 CREATE TYPE vehicle_type AS ENUM ('sedan', 'suv', 'hatchback', 'ev', 'motorcycle');
 CREATE TYPE verification_mode AS ENUM ('qr_code', 'pin', 'geofence', 'iot_gate');
+CREATE TYPE spot_category AS ENUM ('parking_only', 'ev_p2p_charge', 'commercial_cpo', 'fuel_pump');
+CREATE TYPE plug_type AS ENUM ('none', '15A_domestic', 'type2_ac', 'ccs2_dc', 'chademo');
 
 -- 3. USERS TABLE
 CREATE TABLE users (
@@ -59,6 +61,10 @@ CREATE TABLE parking_spots (
     hourly_rate NUMERIC(10, 2) NOT NULL CHECK (hourly_rate > 0.00),
     overstay_multiplier NUMERIC(3, 2) DEFAULT 1.50 CHECK (overstay_multiplier >= 1.00),
     status spot_status DEFAULT 'available',
+    category spot_category DEFAULT 'parking_only',
+    plug_type plug_type DEFAULT 'none',
+    power_output_kw NUMERIC(6, 2) DEFAULT 0.00 CHECK (power_output_kw >= 0.00),
+    energy_rate_per_kwh NUMERIC(8, 2) DEFAULT 0.00 CHECK (energy_rate_per_kwh >= 0.00),
     entry_instructions TEXT, -- Gate codes, physical directions
     has_iot_barrier BOOLEAN DEFAULT FALSE,
     iot_device_key VARCHAR(128), -- Secret for hardware authentication
@@ -69,6 +75,7 @@ CREATE TABLE parking_spots (
 -- SPATIAL GIST INDEX: Fast bounding box and radial queries
 CREATE INDEX idx_parking_spots_location ON parking_spots USING GIST (location);
 CREATE INDEX idx_parking_spots_provider ON parking_spots(provider_id);
+CREATE INDEX idx_parking_spots_category ON parking_spots(category);
 
 -- 6. SPOT OPERATING SCHEDULES
 CREATE TABLE spot_schedules (
@@ -93,6 +100,8 @@ CREATE TABLE bookings (
     actual_check_out TIMESTAMP WITH TIME ZONE,
     base_amount NUMERIC(10, 2) NOT NULL,
     overstay_amount NUMERIC(10, 2) DEFAULT 0.00,
+    energy_kwh NUMERIC(8, 2) DEFAULT 0.00 CHECK (energy_kwh >= 0.00),
+    energy_amount NUMERIC(10, 2) DEFAULT 0.00 CHECK (energy_amount >= 0.00),
     platform_fee NUMERIC(10, 2) NOT NULL,
     provider_earnings NUMERIC(10, 2) NOT NULL,
     pin_code VARCHAR(4) NOT NULL,
@@ -115,6 +124,7 @@ CREATE TABLE disputes (
     reason VARCHAR(100) NOT NULL, -- 'spot_blocked', 'overstay_refusal', 'damage'
     description TEXT NOT NULL,
     photo_evidence_url TEXT,
+    photo_url TEXT,
     resolved BOOLEAN DEFAULT FALSE,
     admin_notes TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
@@ -152,6 +162,57 @@ BEGIN
         ps.has_iot_barrier
     FROM parking_spots ps
     WHERE ps.status = 'available'
+      AND ST_DWithin(
+          ps.location,
+          ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography,
+          radius_meters
+      )
+    ORDER BY distance_meters ASC;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+-- 9B. STORED PROCEDURE: MULTI-CATEGORY RADIAL SEARCH (PARKING + EV + FUEL)
+CREATE OR REPLACE FUNCTION search_nearby_spots(
+    user_lat DOUBLE PRECISION,
+    user_lng DOUBLE PRECISION,
+    radius_meters DOUBLE PRECISION DEFAULT 3000,
+    filter_category spot_category DEFAULT NULL
+)
+RETURNS TABLE (
+    id UUID,
+    title VARCHAR,
+    address TEXT,
+    hourly_rate NUMERIC,
+    latitude DOUBLE PRECISION,
+    longitude DOUBLE PRECISION,
+    distance_meters DOUBLE PRECISION,
+    has_iot_barrier BOOLEAN,
+    category spot_category,
+    plug_type plug_type,
+    power_output_kw NUMERIC,
+    energy_rate_per_kwh NUMERIC
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        ps.id,
+        ps.title,
+        ps.address,
+        ps.hourly_rate,
+        ST_Y(ps.location::geometry) AS latitude,
+        ST_X(ps.location::geometry) AS longitude,
+        ST_Distance(
+            ps.location,
+            ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography
+        ) AS distance_meters,
+        ps.has_iot_barrier,
+        ps.category,
+        ps.plug_type,
+        ps.power_output_kw,
+        ps.energy_rate_per_kwh
+    FROM parking_spots ps
+    WHERE ps.status = 'available'
+      AND (filter_category IS NULL OR ps.category = filter_category)
       AND ST_DWithin(
           ps.location,
           ST_SetSRID(ST_MakePoint(user_lng, user_lat), 4326)::geography,

@@ -1,5 +1,5 @@
 import { db } from "../../lib/db";
-import { redis, REDIS_KEYS } from "../../lib/redis";
+import { redis, REDIS_KEYS, acquireLock, releaseLock } from "../../lib/redis";
 import { env } from "../../config/env";
 import { Errors } from "../../lib/errors";
 import { computeBaseAmount, computeCheckoutBreakdown } from "../../lib/money";
@@ -9,11 +9,13 @@ import { sendPush } from "../../lib/notifications";
 import { broadcastSpotStatus } from "../../lib/realtime";
 import { getSpotById } from "../spots/service";
 import { assertTransition, type BookingStatus } from "../../lib/fsm";
+import { turnPowerOn, turnPowerOff } from "../energy/service";
 
 const bookingSelect = `
   b.id, b.spot_id, b.driver_id, b.vehicle_id, b.status,
   b.start_time, b.expected_end_time, b.actual_check_in, b.actual_check_out,
-  b.base_amount, b.overstay_amount, b.platform_fee, b.provider_earnings,
+  b.base_amount, b.overstay_amount, b.energy_kwh, b.energy_amount,
+  b.platform_fee, b.provider_earnings,
   b.pin_code, b.qr_secret, b.verified_via, b.payment_intent_id,
   b.created_at, b.updated_at
 `;
@@ -38,6 +40,8 @@ export interface BookingRow {
   actual_check_out: Date | null;
   base_amount: number;
   overstay_amount: number;
+  energy_kwh: number;
+  energy_amount: number;
   platform_fee: number;
   provider_earnings: number;
   pin_code: string;
@@ -55,10 +59,6 @@ export interface BookingRow {
  * read-then-write race. A driver's OLD lock on another spot is evicted first
  * (same driver can only hold one active lock) but another driver's lock is
  * untouched — that's the 409.
- *
- * Hardware (ANPR/IoT) spots publish over Redis as well via `SE`
- * (set-if-exists) shadow keys that let the gate webhook decide exactly one
- * booking. Simulated here as device shadow books (see webhooks module).
  */
 export async function lockSpot(input: LockBookingInput) {
   const spot = await getSpotById(input.spotId);
@@ -66,31 +66,19 @@ export async function lockSpot(input: LockBookingInput) {
     throw Errors.conflict("This slot is not available for booking right now.");
   }
 
-  // 1. Release any older lock the same driver holds elsewhere.
-  const prevDriverLockKey = await redis.get(REDIS_KEYS.driverActiveLock(input.driverId));
-  if (prevDriverLockKey) {
-    const prevKey = await redis.get(prevDriverLockKey);
-    await redis.del(prevDriverLockKey);
-    await redis.del(REDIS_KEYS.driverActiveLock(input.driverId));
-    void prevKey; // tombstone read for correctness logging
-  }
-
-  // 2. Atomic acquire: SET ... NX EX <TTL>. NIL => lock held by someone else.
-  const spotLockKey = REDIS_KEYS.spotLock(input.spotId);
+  // 1 & 2. Atomic acquire: SET lock:spot:{spot_id} {driver_id} NX EX 600.
   const bookingId = crypto.randomUUID();
-  const lockValue = { booking_id: bookingId, driver_id: input.driverId };
-  const acquired = await redis.set(spotLockKey, JSON.stringify(lockValue), "EX", env.BOOKING_LOCK_TTL_SECONDS, "NX");
-  if (acquired !== "OK") {
+  const lockResult = await acquireLock(input.spotId, input.driverId, bookingId);
+  if (!lockResult.acquired) {
     throw Errors.conflict(
       "This slot was just locked by another driver. Please select an alternate spot."
     );
   }
-  await redis.set(REDIS_KEYS.driverActiveLock(input.driverId), spotLockKey);
 
-  // 3. Mark the spot locked in Postgres (keeps the map + search honest).
+  // 3. Mark the spot locked in Postgres (keeps map + search honest).
   await db.query("UPDATE parking_spots SET status = 'locked' WHERE id = $1", [input.spotId]);
 
-  // 4. Create booking row (pending_lock). Amount = base only; overstay later.
+  // 4. Create booking row (pending_lock). Base fee pre-authorized; energy & overstay at checkout.
   const base = computeBaseAmount(Number(spot.hourly_rate), input.durationHours);
   const expectedEnd = new Date(input.startTime.getTime() + input.durationHours * 3_600_000);
   const gross = base;
@@ -100,9 +88,10 @@ export async function lockSpot(input: LockBookingInput) {
   const booking = await db.one(
     `INSERT INTO bookings AS b (
        id, spot_id, driver_id, vehicle_id, status, start_time, expected_end_time,
-       base_amount, overstay_amount, platform_fee, provider_earnings,
+       base_amount, overstay_amount, energy_kwh, energy_amount,
+       platform_fee, provider_earnings,
        pin_code, qr_secret, payment_intent_id
-     ) VALUES ($1,$2,$3,$4,'pending_lock',$5,$6,$7,0,$8,$9,$10,$11,$12)
+     ) VALUES ($1,$2,$3,$4,'pending_lock',$5,$6,$7,0,0,0,$8,$9,$10,$11,$12)
      RETURNING ${bookingSelect}`,
     [
       bookingId,
@@ -182,8 +171,7 @@ export async function confirmPayment(
   const booking = await getBooking(bookingId);
   assertTransition(booking.status, "reserved");
   const updated = await transition(bookingId, "reserved");
-  await redis.del(REDIS_KEYS.spotLock(booking.spot_id));
-  await redis.del(REDIS_KEYS.driverActiveLock(booking.driver_id));
+  await releaseLock(booking.spot_id, booking.driver_id);
 
   // Provider alert: arrival of the vehicle's identity.
   const spot = await getSpotById(booking.spot_id);
@@ -202,7 +190,10 @@ export async function confirmPayment(
   return updated;
 }
 
-/** Phase 3 — check in via pin/qr/geofence/iot_gate (validated server-side). */
+/**
+ * Phase 3 — check in via pin/qr/geofence/iot_gate (validated server-side).
+ * If the spot supports P2P EV charging, triggers the smart switch relay ON.
+ */
 export async function checkIn(
   bookingId: string,
   method: "pin" | "qr_code" | "geofence" | "iot_gate",
@@ -231,8 +222,19 @@ export async function checkIn(
       );
     }
   } else if (method === "iot_gate") {
-    // Device already authenticated via X-Device-Key + spot match (webhooks
-    // module); nothing extra to verify here.
+    // Device already authenticated via X-Device-Key + spot match
+  }
+
+  // Trigger smart breaker socket relay if EV spot
+  const spot = await getSpotById(booking.spot_id);
+  if (
+    spot.category === "ev_p2p_charge" ||
+    spot.category === "commercial_cpo" ||
+    Number(spot.power_output_kw) > 0
+  ) {
+    await turnPowerOn(booking.spot_id, bookingId, booking.driver_id).catch((err) =>
+      console.warn(`[energy] relay trigger warning for ${bookingId}:`, err.message)
+    );
   }
 
   const updated = await transition(bookingId, "checked_in", {
@@ -243,9 +245,8 @@ export async function checkIn(
 }
 
 /**
- * Phase 4 — check out. Computes overstay with the ARCHITECTURE formula and
- * triggers the escrow split (85% provider payout). All money math is
- * server-side; the client never sends amounts here.
+ * Phase 4 — check out. Cuts EV socket power, computes metered consumption +
+ * progressive overstay with ARCHITECTURE formula, and triggers the escrow split.
  */
 export async function checkOut(bookingId: string): Promise<{
   booking: BookingRow;
@@ -265,24 +266,41 @@ export async function checkOut(bookingId: string): Promise<{
     Math.round((new Date(booking.expected_end_time).getTime() - new Date(booking.start_time).getTime()) / 60_000)
   );
 
+  // If EV charging was active, cut relay power and read kWh
+  let energyKwh = 0;
+  if (
+    spot.category === "ev_p2p_charge" ||
+    spot.category === "commercial_cpo" ||
+    Number(spot.power_output_kw) > 0
+  ) {
+    const energyResult = await turnPowerOff(bookingId, booking.actual_check_in).catch(() => ({
+      kwh: 0,
+      energyRate: Number(spot.energy_rate_per_kwh ?? 0),
+    }));
+    energyKwh = energyResult.kwh;
+  }
+
   const breakdown = computeCheckoutBreakdown({
     base_amount: Number(booking.base_amount),
     hourly_rate: Number(spot.hourly_rate),
     overstay_multiplier: Number(spot.overstay_multiplier),
     parked_minutes: actualMinutes,
     booked_minutes: bookedMinutes,
+    energy_kwh: energyKwh,
+    energy_rate_per_kwh: Number(spot.energy_rate_per_kwh ?? 0),
   });
 
-  // Persist the final ledger numbers BEFORE payout, so a worker retry can
-  // never double-disburse (payout idem-keyed on booking below).
+  // Persist the final numbers before payout
   const updated = await transition(bookingId, "completed", {
     actual_check_out: now,
     overstay_amount: breakdown.overstay_amount,
+    energy_kwh: breakdown.energy_kwh,
+    energy_amount: breakdown.energy_amount,
     platform_fee: breakdown.platform_fee,
     provider_earnings: breakdown.provider_earnings,
   });
 
-  // Escrow split: 85/15 — idempotent (keyed on booking id).
+  // Escrow split: 85/15 on total gross — idempotent
   await settleEscrow({
     bookingId,
     driverId: booking.driver_id,
@@ -292,7 +310,8 @@ export async function checkOut(bookingId: string): Promise<{
     providerEarnings: breakdown.provider_earnings,
   });
 
-  // Free the spot for the next driver.
+  // Free spot & evict locks
+  await releaseLock(booking.spot_id, booking.driver_id);
   await db.query(
     "UPDATE parking_spots SET status = 'available' WHERE id = $1 AND has_iot_barrier = FALSE",
     [booking.spot_id]
@@ -311,8 +330,7 @@ export async function cancelBooking(
   if (driverId && booking.driver_id !== driverId) throw Errors.forbidden("Not your booking");
   assertTransition(booking.status, "cancelled");
   const updated = await transition(booking.id, "cancelled");
-  await redis.del(REDIS_KEYS.spotLock(booking.spot_id));
-  await redis.del(REDIS_KEYS.driverActiveLock(booking.driver_id));
+  await releaseLock(booking.spot_id, booking.driver_id);
   await db.query(
     "UPDATE parking_spots SET status = 'available' WHERE id = $1 AND has_iot_barrier = FALSE",
     [booking.spot_id]
@@ -322,9 +340,7 @@ export async function cancelBooking(
 }
 
 /**
- * Idempotent escrow settlement → provider wallet. Paying a split transfer
- * through a live gateway (Stripe Connect / Razorpay Route) is handled in the
- * payments module; the ledger is what tests assert on.
+ * Idempotent escrow settlement -> provider wallet.
  */
 async function settleEscrow(args: {
   bookingId: string;

@@ -3,9 +3,6 @@ node_modules/
 dist/
 coverage/
 *.log
-.env
-# Stray lockfile from running npm at the repo root (backend/ has its own).
-/package-lock.json
 
 # Flutter
 client/.dart_tool/
@@ -28,6 +25,14 @@ client/ios/Flutter/ephemeral/
 .vscode/
 *.swp
 
-# Env
+# Env — every real environment file, in every flavour. Only the templates
+# (`.env.example`) are meant to be committed.
 .env
-.env.local
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
+
+# Stray lockfile from running npm at the repo root (backend/ has its own).
+/package-lock.json

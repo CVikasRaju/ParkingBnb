@@ -58,4 +58,14 @@ export async function vehicleRoutes(app: FastifyInstance): Promise<void> {
     if (!rows[0]) throw Object.assign(new Error("Vehicle not found"), { statusCode: 404 });
     return { success: true, data: rows[0] };
   });
+
+  app.delete("/vehicles/:id", { onRequest: [requireRole("driver")] }, async (req) => {
+    const { id } = req.params as { id: string };
+    const { rowCount } = await db.query(
+      "DELETE FROM vehicles WHERE id = $1 AND driver_id = $2",
+      [id, req.auth!.sub]
+    );
+    if (!rowCount) throw Object.assign(new Error("Vehicle not found"), { statusCode: 404 });
+    return { success: true, data: { deleted: true, id } };
+  });
 }

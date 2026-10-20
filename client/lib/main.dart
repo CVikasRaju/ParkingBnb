@@ -4,7 +4,9 @@ import 'core/api_client.dart';
 import 'core/deep_link.dart';
 import 'features/admin/admin_screen.dart';
 import 'features/map/map_screen.dart';
-import 'features/provider/provider_screen.dart';
+import 'features/provider/provider_dashboard_screen.dart';
+import 'features/booking/booking_history_screen.dart';
+import 'features/profile/vehicles_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,6 +163,95 @@ class HomeShell extends StatelessWidget {
 
   final ApiClient api;
 
+  Widget _buildDrawer(BuildContext context) {
+    final role = api.role ?? 'driver';
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          DrawerHeader(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                colors: [Color(0xFF00695C), Color(0xFF00897B)],
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                const Icon(Icons.local_parking, size: 40, color: Colors.white),
+                const SizedBox(height: 8),
+                const Text('ParkPeer', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                Text('Role: ${role.toUpperCase()}', style: TextStyle(color: Colors.teal.shade100, fontSize: 12)),
+              ],
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.map),
+            title: const Text('Explore & Book'),
+            onTap: () => Navigator.of(context).pop(),
+          ),
+          ListTile(
+            leading: const Icon(Icons.receipt_long),
+            title: const Text('My Bookings & Receipts'),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => BookingHistoryScreen(api: api)),
+              );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.directions_car),
+            title: const Text('My Vehicles'),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => VehiclesScreen(api: api)),
+              );
+            },
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.storefront),
+            title: const Text('Host & EV Dashboard'),
+            onTap: () {
+              Navigator.of(context).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => ProviderDashboardScreen(api: api)),
+              );
+            },
+          ),
+          if (role == 'admin')
+            ListTile(
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text('Admin Console'),
+              onTap: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => AdminScreen(api: api)),
+                );
+              },
+            ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red),
+            title: const Text('Log Out', style: TextStyle(color: Colors.red)),
+            onTap: () async {
+              await api.clearSession();
+              if (context.mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute<void>(builder: (_) => LoginScreen(api: api)),
+                  (r) => false,
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = api.role;
@@ -171,6 +262,7 @@ class HomeShell extends StatelessWidget {
       return DefaultTabController(
         length: 3,
         child: Scaffold(
+          drawer: _buildDrawer(context),
           appBar: AppBar(
             title: const Text('ParkPeer Admin'),
             actions: [_logoutButton()],
@@ -185,7 +277,7 @@ class HomeShell extends StatelessWidget {
           body: TabBarView(
             children: [
               MapScreen(api: api, nav: NavigationLauncher()),
-              ProviderScreen(api: api),
+              ProviderDashboardScreen(api: api),
               AdminScreen(api: api),
             ],
           ),
@@ -195,14 +287,26 @@ class HomeShell extends StatelessWidget {
     return DefaultTabController(
       length: isProvider ? 2 : 1,
       child: Scaffold(
+        drawer: _buildDrawer(context),
         appBar: AppBar(
           title: const Text('ParkPeer'),
-          actions: [_logoutButton()],
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.receipt_long),
+              tooltip: 'My Bookings',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => BookingHistoryScreen(api: api)),
+                );
+              },
+            ),
+            _logoutButton(),
+          ],
           bottom: isProvider
               ? const TabBar(
                   tabs: [
                     Tab(text: 'Map', icon: Icon(Icons.map)),
-                    Tab(text: 'Provider', icon: Icon(Icons.storefront)),
+                    Tab(text: 'Host Dashboard', icon: Icon(Icons.storefront)),
                   ],
                 )
               : null,
@@ -211,7 +315,7 @@ class HomeShell extends StatelessWidget {
             ? TabBarView(
                 children: [
                   MapScreen(api: api, nav: NavigationLauncher()),
-                  ProviderScreen(api: api),
+                  ProviderDashboardScreen(api: api),
                 ],
               )
             : MapScreen(api: api, nav: NavigationLauncher()),

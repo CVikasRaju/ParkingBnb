@@ -4,10 +4,16 @@ on:
   push:
     branches: [master, main]
   pull_request:
+  workflow_dispatch:
+
+# One run per branch: a push that supersedes another cancels the older build.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  backend-lint:
-    name: Backend lint + typecheck + tests
+  backend:
+    name: Backend lint + typecheck + tests + build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -22,9 +28,31 @@ jobs:
       - run: npm ci
       - run: npx tsc --noEmit
       - run: npm run lint
+      # Env-contract tests live in test/production.test.ts: no database needed.
       - run: npx vitest run
+      # The Dockerfile ships dist/, so a green `tsc` is not enough on its own.
+      - run: npm run build
 
-  flutter-analyze:
+  website:
+    name: Website lint + build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      # No Supabase credentials on purpose: the build must stay green in seed
+      # mode, which is also how a fresh clone behaves.
+      - run: npm run build
+
+  flutter:
     name: Flutter analyze + test
     runs-on: ubuntu-latest
     defaults:
@@ -41,3 +69,23 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+
+  deploy-config:
+    name: Compose config (deploy stack parses)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The deploy file requires backend/.env.production; the template stands in
+      # for it, so this catches a broken compose/YAML change before a deploy
+      # rather than during one. POSTGRES_PASSWORD is only needed for the
+      # `local-db` profile, which the file demands explicitly on purpose — a
+      # deploy that forgets it should fail loudly rather than publish a default
+      # password. Any value satisfies the parse.
+      - run: cp backend/.env.production.example backend/.env.production
+      - run: |
+          export POSTGRES_PASSWORD=ci-compose-config-only
+          docker compose -f docker-compose.prod.yml --profile local-db --profile tools config >/dev/null
+          echo "prod compose parses (local data plane)"
+          docker compose -f docker-compose.prod.yml config >/dev/null
+          echo "prod compose parses (managed data plane)"
+      - run: docker compose config >/dev/null && echo "dev compose parses"

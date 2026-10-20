@@ -51,11 +51,28 @@ function ensureRedisReceiver(): Promise<void> {
 
 /**
  * Await the Redis subscriber during boot so the gateway can broadcast from the
- * very first request. Never fatal: realtime is a best-effort side channel.
+ * very first request. Never fatal *and never blocking*: realtime is a
+ * best-effort side channel, and ioredis queues a command issued while the
+ * socket is down, which would otherwise hold the whole process at boot until
+ * Redis came back. The wait is capped, and `onRealtime()` re-subscribes on the
+ * next subscriber.
  */
+export const REALTIME_BOOT_TIMEOUT_MS = 3000;
+
 export async function initRealtime(): Promise<void> {
   try {
-    await ensureRedisReceiver();
+    await Promise.race([
+      ensureRedisReceiver(),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          console.warn(
+            `[realtime] Redis subscriber not ready after ${REALTIME_BOOT_TIMEOUT_MS}ms — starting anyway (updates resume once Redis is reachable)`
+          );
+          resolve();
+        }, REALTIME_BOOT_TIMEOUT_MS);
+        if (typeof timer.unref === "function") timer.unref();
+      }),
+    ]);
   } catch (err) {
     console.error("[realtime] could not subscribe — realtime updates disabled", err);
   }

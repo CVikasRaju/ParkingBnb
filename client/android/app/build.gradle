@@ -58,6 +58,13 @@ android {
             // falls back to debug keys only when key.properties is absent
             // (keeps `flutter run --release` working on fresh checkouts).
             signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+
+            if (!keystorePropertiesFile.exists()) {
+                // Loud on purpose: a debug-signed artefact is fine for a local
+                // `--release` run and rejected by Play Console, and the failure
+                // would otherwise only surface after the upload.
+                logger.warn("WARNING: android/key.properties is missing — the release build is being signed with the DEBUG key and cannot be uploaded to Play Console.")
+            }
         }
     }
 }

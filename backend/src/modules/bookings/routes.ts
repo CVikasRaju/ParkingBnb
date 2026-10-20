@@ -70,7 +70,7 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
     });
 
     const spot = await db.one(
-      `SELECT hourly_rate FROM parking_spots WHERE id = $1`,
+      `SELECT hourly_rate, category, plug_type, power_output_kw, energy_rate_per_kwh FROM parking_spots WHERE id = $1`,
       [body.spot_id]
     );
     const base = Number(booking.base_amount);
@@ -94,6 +94,10 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
         },
         hourly_rate: Number(spot.hourly_rate),
         duration_hours: body.duration_hours,
+        category: spot.category ?? "parking_only",
+        plug_type: spot.plug_type ?? "none",
+        power_output_kw: Number(spot.power_output_kw ?? 0),
+        energy_rate_per_kwh: Number(spot.energy_rate_per_kwh ?? 0),
       },
     };
   });
@@ -216,6 +220,9 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
           overstay_minutes: overstayMinutes,
           base_fee: breakdown.base_amount,
           overstay_fee: breakdown.overstay_amount,
+          energy_kwh: breakdown.energy_kwh,
+          energy_rate_per_kwh: breakdown.energy_rate_per_kwh,
+          energy_fee: breakdown.energy_amount,
           total_charged: breakdown.gross_amount,
           platform_commission_15_pct: breakdown.platform_fee,
           provider_payout_amount: breakdown.provider_earnings,
@@ -242,5 +249,90 @@ export async function bookingRoutes(app: FastifyInstance): Promise<void> {
     const booking = await getBooking(id);
     if (booking.driver_id !== req.auth!.sub) throw Errors.forbidden("Not your booking");
     return { success: true, data: { booking_id: id, checkout_provisional: true } };
+  });
+
+  /** List bookings: driver gets their bookings; provider gets bookings on their spots. */
+  app.get("/bookings", { onRequest: [requireAuth] }, async (req) => {
+    const query = req.query as { role?: string; status?: string };
+    const isProvider = query?.role === "provider" || req.auth!.role === "provider";
+
+    if (isProvider) {
+      const { rows } = await db.query(
+        `SELECT b.*,
+                ps.title AS spot_title, ps.address AS spot_address, ps.category, ps.plug_type,
+                ps.hourly_rate, ps.energy_rate_per_kwh,
+                v.license_plate, v.make_model, v.vehicle_type,
+                u.full_name AS driver_name, u.phone_number AS driver_phone
+         FROM bookings b
+         JOIN parking_spots ps ON ps.id = b.spot_id
+         JOIN vehicles v ON v.id = b.vehicle_id
+         JOIN users u ON u.id = b.driver_id
+         WHERE ps.provider_id = $1
+         ORDER BY b.start_time DESC
+         LIMIT 100`,
+        [req.auth!.sub]
+      );
+      return { success: true, data: rows };
+    }
+
+    const { rows } = await db.query(
+      `SELECT b.*,
+              ps.title AS spot_title, ps.address AS spot_address, ps.category, ps.plug_type,
+              ps.hourly_rate, ps.energy_rate_per_kwh,
+              v.license_plate, v.make_model, v.vehicle_type,
+              host.full_name AS provider_name, host.phone_number AS provider_phone
+       FROM bookings b
+       JOIN parking_spots ps ON ps.id = b.spot_id
+       JOIN vehicles v ON v.id = b.vehicle_id
+       JOIN users host ON host.id = ps.provider_id
+       WHERE b.driver_id = $1
+       ORDER BY b.created_at DESC
+       LIMIT 100`,
+      [req.auth!.sub]
+    );
+    return { success: true, data: rows };
+  });
+
+  /** Get single booking details with full receipt. */
+  app.get("/bookings/:id", { onRequest: [requireAuth] }, async (req) => {
+    const { id } = req.params as { id: string };
+    const booking = await getBooking(id);
+    await assertBookingAccess(booking, req.auth!.sub, req.auth!.role);
+
+    const spot = await db.one(
+      `SELECT title, address, hourly_rate, category, plug_type, power_output_kw, energy_rate_per_kwh, entry_instructions
+       FROM parking_spots WHERE id = $1`,
+      [booking.spot_id]
+    );
+
+    const vehicle = await db.maybeOne(
+      `SELECT license_plate, make_model, vehicle_type FROM vehicles WHERE id = $1`,
+      [booking.vehicle_id]
+    );
+
+    const baseAmount = Number(booking.base_amount);
+    const overstayAmount = Number(booking.overstay_amount ?? 0);
+    const energyAmount = Number(booking.energy_amount ?? 0);
+    const energyKwh = Number(booking.energy_kwh ?? 0);
+    const totalCharged = baseAmount + overstayAmount + energyAmount;
+
+    return {
+      success: true,
+      data: {
+        ...booking,
+        spot,
+        vehicle,
+        itemized_receipt: {
+          base_amount: baseAmount,
+          overstay_amount: overstayAmount,
+          energy_kwh: energyKwh,
+          energy_rate_per_kwh: Number(spot.energy_rate_per_kwh ?? 0),
+          energy_amount: energyAmount,
+          total_paid: totalCharged,
+          platform_fee: Number(booking.platform_fee),
+          provider_earnings: Number(booking.provider_earnings),
+        },
+      },
+    };
   });
 }

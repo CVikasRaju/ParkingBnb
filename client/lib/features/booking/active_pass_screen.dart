@@ -5,6 +5,7 @@ import '../../core/api_client.dart';
 import '../../core/deep_link.dart';
 import '../booking/booking_service.dart';
 import 'rotating_qr.dart';
+import 'dispute_dialog.dart';
 
 /// Sprint 2/3 — Driver "Active Pass" (Phases 1–3 of the lifecycle).
 ///
@@ -47,6 +48,14 @@ class _ActivePassScreenState extends State<ActivePassScreen> {
   Map<String, dynamic> get _verification =>
       (_data['verification'] as Map<String, dynamic>?) ?? {};
 
+  bool get _isEv {
+    final cat = _data['category'] ?? _data['spot']?['category'] ?? _navigation['category'];
+    return cat == 'ev_p2p_charge' ||
+        cat == 'commercial_cpo' ||
+        _data['plug_type'] != null ||
+        _navigation['plug_type'] != null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -57,6 +66,40 @@ class _ActivePassScreenState extends State<ActivePassScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (_isEv) ...[
+            Card(
+              color: Colors.green.shade50,
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    Icon(Icons.bolt, color: Colors.green, size: 28),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '⚡ EV Socket Energized · Metering Active',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: Colors.green,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Smart socket relay is ON. Live energy consumption will be metered and added to your total at checkout.',
+                            style: TextStyle(fontSize: 12, color: Colors.black87),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -139,6 +182,26 @@ class _ActivePassScreenState extends State<ActivePassScreen> {
                 );
               },
             ),
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red.shade700,
+              side: BorderSide(color: Colors.red.shade300),
+            ),
+            icon: const Icon(Icons.report_problem_outlined),
+            label: const Text('Report Blocked Spot / Emergency'),
+            onPressed: () async {
+              final refunded = await DisputeDialog.show(
+                context,
+                bookingId: widget.bookingId,
+                api: widget.api,
+                spotTitle: nav['address'],
+              );
+              if (refunded == true && context.mounted) {
+                Navigator.of(context).pop();
+              }
+            },
           ),
         ],
       ),

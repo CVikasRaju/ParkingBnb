@@ -4,4 +4,10 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- Debug-only cleartext. The API runs on http://10.0.2.2:8080 (emulator) or
+         a LAN address during development, and Android 9+ blocks plain http by
+         default. This attribute is merged into debug builds only, so a release
+         artefact (apk or appbundle) cannot talk to an unencrypted endpoint. -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>

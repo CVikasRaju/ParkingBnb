@@ -1,16 +1,19 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { supabaseConfig } from "@/lib/config";
 
 /**
  * Browser-side Supabase client.
  *
- * Returns `null` when credentials are absent so callers can fall back to demo
- * behaviour instead of throwing — the site must never hard-fail because a
- * credential is missing.
+ * Returns `null` when credentials are absent so callers fall back to the seed
+ * catalogue instead of throwing — the map must never hard-fail because a key is
+ * missing. Uses the anon key, so every read is governed by the RLS policies in
+ * `backend/db/migrations/013`–`015`.
  */
-export function createSupabaseBrowserClient() {
+export function createSupabaseBrowserClient(): SupabaseClient | null {
   if (!supabaseConfig.url || !supabaseConfig.anonKey) return null;
   return createBrowserClient(supabaseConfig.url, supabaseConfig.anonKey);
 }

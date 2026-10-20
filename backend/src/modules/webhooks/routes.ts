@@ -1,8 +1,11 @@
+import { timingSafeEqual } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+
+import { env, isProd } from "../../config/env";
 import { db } from "../../lib/db";
 import { Errors } from "../../lib/errors";
-import { env } from "../../config/env";
+import { webhookRateLimit } from "../../lib/rateLimit";
 import { confirmPayment, checkIn, checkOut } from "../bookings/service";
 import { broadcastSpotStatus } from "../../lib/realtime";
 
@@ -11,9 +14,10 @@ import { broadcastSpotStatus } from "../../lib/realtime";
  *
  *  - Stripe: verifies `stripe-signature` (webhook signing secret).
  *  - Razorpay: verifies Razorpay X-Signature (HMAC SHA256).
- *
- * The mock provider skips crypto verification in dev and fans out by the
- * common `payment_intent.amount_capturable_updated` shape from the spec.
+ *  - Mock: no signature exists, so in production it must present the shared
+ *    `X-Mock-Payment-Secret` — otherwise anyone who can reach the endpoint could
+ *    confirm a booking without paying (`MOCK_PAYMENT_SECRET`, enforced at boot
+ *    by `productionEnvProblems`). In development the mock stays open.
  */
 async function verifyStripe(body: string, sig: string | undefined): Promise<boolean> {
   if (env.PAYMENT_PROVIDER !== "stripe" || !env.STRIPE_WEBHOOK_SECRET) return true;
@@ -30,10 +34,23 @@ async function verifyStripe(body: string, sig: string | undefined): Promise<bool
 
 async function verifyRazorpay(orderId: string, signature: string): Promise<boolean> {
   if (env.PAYMENT_PROVIDER !== "razorpay") return true;
-  const { createHmac, timingSafeEqual } = await import("node:crypto");
+  const { createHmac, timingSafeEqual: equal } = await import("node:crypto");
   const expected = createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET || "").update(orderId).digest("hex");
   const a = Buffer.from(expected, "hex");
   const b = Buffer.from(signature, "hex");
+  return a.length === b.length && equal(a, b);
+}
+
+/** Shared-secret check for the mock gateway (constant time, length-tolerant). */
+function verifyMock(provided: string | undefined): boolean {
+  if (env.PAYMENT_PROVIDER !== "mock") return true;
+  const expected = env.MOCK_PAYMENT_SECRET;
+  // Development convenience: an unset secret means the endpoint stays usable
+  // locally. Production cannot get here — the env contract requires the secret.
+  if (!expected) return !isProd;
+  if (!provided) return false;
+  const a = Buffer.from(provided, "utf8");
+  const b = Buffer.from(expected, "utf8");
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
@@ -44,6 +61,10 @@ const iotHookSchema = z.object({
 });
 
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
+  // Gateways and barriers are machines: they retry in bursts, so the ceiling is
+  // high but it is not absent.
+  app.addHook("preHandler", webhookRateLimit());
+
   /**
    * Payment intent confirmation — mirrors the FSM edge
    * `LOCKED -> RESERVED` fired by the gateway's
@@ -76,6 +97,14 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       const orderId = body.payload?.payment?.entity?.order_id ?? "";
       if (orderId && !(await verifyRazorpay(orderId, sigRz))) {
         throw Errors.unauthorized("Invalid Razorpay signature");
+      }
+    }
+
+    // Mock gateway: shared secret required in production.
+    if (env.PAYMENT_PROVIDER === "mock") {
+      const provided = (req.headers["x-mock-payment-secret"] as string) || undefined;
+      if (!verifyMock(provided)) {
+        throw Errors.unauthorized("Invalid or missing mock payment secret");
       }
     }
 
@@ -145,4 +174,16 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/webhooks/gate", handleGateWebhook);
   app.post("/webhooks/iot-barrier", handleGateWebhook);
+
+  /** Smart breaker / energy meter telemetry webhook. */
+  app.post("/webhooks/smart-meter", async (req, reply) => {
+    const meterSchema = z.object({
+      booking_id: z.string().uuid(),
+      kwh: z.number().nonnegative(),
+    });
+    const body = meterSchema.parse(req.body);
+    const { recordMeterReading } = await import("../energy/service");
+    const session = await recordMeterReading(body.booking_id, body.kwh);
+    return reply.status(200).send({ received: true, session });
+  });
 }

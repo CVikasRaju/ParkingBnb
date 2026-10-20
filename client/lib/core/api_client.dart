@@ -37,6 +37,10 @@ class ApiClient {
   static const String _envBaseUrl = String.fromEnvironment('API_BASE_URL');
 
   static String get _defaultBaseUrl {
+    // Set at build time by CI/release builds, e.g.
+    //   --dart-define=API_BASE_URL=https://api.parkpeer.example/api/v1
+    // A release build carries no `usesCleartextTraffic`, so an http:// value
+    // here would simply fail to connect — that is the point.
     if (_envBaseUrl.isNotEmpty) return _envBaseUrl;
     if (kIsWeb) return 'http://localhost:8080/api/v1';
     if (Platform.isAndroid) {
@@ -113,6 +117,8 @@ class ApiClient {
       request('POST', path, body: body);
   Future<dynamic> patch(String path, {Map<String, dynamic>? body}) =>
       request('PATCH', path, body: body);
+  Future<dynamic> delete(String path) =>
+      request('DELETE', path);
 
   /// Auth: returns `{ token, user }`.
   Future<Map<String, dynamic>> login(String email, String password) =>
@@ -162,6 +168,7 @@ class ApiClient {
     double radiusM = 2000,
     String? startTime,
     double? durationHours,
+    String? category,
   }) async {
     final q = <String, String>{
       'lat': '$lat',
@@ -169,6 +176,7 @@ class ApiClient {
       'radius_m': '$radiusM',
       if (startTime != null) 'start_time': startTime,
       if (durationHours != null) 'duration_hours': '$durationHours',
+      if (category != null) 'category': category,
     };
     final data = await get('spots/search', query: q);
     return (data as List).cast<dynamic>();

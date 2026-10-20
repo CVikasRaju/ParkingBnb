@@ -1,25 +1,36 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { JetBrains_Mono, Plus_Jakarta_Sans, Space_Grotesk } from "next/font/google";
 
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+/* Display: automotive/geometric. Data: monospaced, so countdowns, GPS
+   coordinates, plates and PINs never jitter as the digits change. */
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const jakarta = Plus_Jakarta_Sans({
+  variable: "--font-jakarta",
   subsets: ["latin"],
+  display: "swap",
+});
+
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
+  subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: {
-    default: "ParkPeer — parking, found in seconds",
+    default: "ParkPeer — Park anywhere. Own the curb.",
     template: "%s · ParkPeer",
   },
   description:
-    "ParkPeer is a real-time peer-to-peer parking marketplace. Atomic 10-minute holds prevent double bookings, check-in is verified by QR, PIN and geofence, and host payouts settle automatically through escrow.",
+    "ParkPeer is a peer-to-peer parking marketplace. Lock a private driveway in ten minutes, arrive to a verified gate, and settle automatically when you leave.",
   keywords: [
     "parking",
     "peer-to-peer parking",
@@ -28,12 +39,16 @@ export const metadata: Metadata = {
     "parking app",
   ],
   openGraph: {
-    title: "ParkPeer — parking, found in seconds",
+    title: "ParkPeer — Park anywhere. Own the curb.",
     description:
-      "Reserve verified private parking with an atomic 10-minute hold, verified check-in and automatic host payouts.",
+      "A real-time marketplace for private parking: 10-minute atomic holds, QR and geofence check-in, automatic payouts.",
     type: "website",
   },
-  robots: { index: true, follow: true },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#060911",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
@@ -44,9 +59,10 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-scroll-behavior="smooth"
+      className={`${spaceGrotesk.variable} ${jakarta.variable} ${jetbrains.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-ink-950 text-mist-100">
+      <body className="min-h-full bg-obsidian font-sans text-slate-200">
         {children}
       </body>
     </html>

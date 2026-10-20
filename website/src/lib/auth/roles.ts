@@ -34,6 +34,21 @@ export const ROLES: RoleOption[] = [
   },
 ];
 
+/**
+ * Roles a visitor may choose for themselves.
+ *
+ * `admin` is deliberately absent. Operator accounts are created out of band —
+ * migration 019 no longer honours `role: "admin"` from sign-up metadata at all,
+ * and the Fastify API requires the `ADMIN_SIGNUP_SECRET` — so offering it here
+ * would only produce a driver account and an angry operator.
+ */
+export const SIGNUP_ROLES: RoleOption[] = ROLES.filter((option) => option.value !== "admin");
+
+/**
+ * `admin` is still accepted while signing *in* (an existing operator arrives on
+ * `/auth?role=admin` and must not be silently switched to a driver), but the
+ * sign-up form filters it out of its choices.
+ */
 export function normalizeRole(value: unknown): Role {
   return value === "provider" || value === "admin" ? value : "driver";
 }

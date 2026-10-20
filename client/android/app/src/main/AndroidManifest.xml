@@ -4,11 +4,16 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.FLASHLIGHT"/>
+    <!-- No `android:usesCleartextTraffic` here on purpose: a release build must
+         refuse plain http. Debug builds opt back in through
+         `src/debug/AndroidManifest.xml`, so `flutter run` against a local
+         http://10.0.2.2:8080 API keeps working while a shipped build cannot be
+         downgraded to plain http. Release builds point at https through the
+         API_BASE_URL dart-define (see DEPLOYMENT.md, mobile section). -->
     <application
         android:label="parkpeer"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:usesCleartextTraffic="true">
+        android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
