@@ -3,37 +3,53 @@
 /**
  * The live 3D map.
  *
- * Two decisions worth knowing:
- *
- * 1. **Markers are WebGL layers, not DOM.** Each bay becomes a small polygon
- *    that is extruded into a column (`fill-extrusion`), so the pins stand up out
- *    of the basemap at the 60° pitch the spec asks for. A DOM `<Marker>` per bay
- *    would thrash layout once the catalogue grows; three GPU layers do not care.
- * 2. **The style is remote but failure-tolerant.** The free OpenFreeMap dark
- *    style is the primary source; if it cannot load, the map swaps to a minimal
- *    inline style so the pins, the drawer and the whole booking flow still work
- *    offline.
+ * Designed for crystal-clear readability in both Dark and Light modes:
+ * 1. Supports 3 vector styles (Streets, Light, Dark) from OpenFreeMap plus
+ *    an automatic zero-fail OpenStreetMap raster fallback.
+ * 2. Synchronizes with the global site theme, and provides an on-canvas
+ *    quick-switch pill [ Streets | Light | Dark ].
+ * 3. Markers are high-contrast WebGL layers with glowing halos and clear
+ *    pill badges, so price and status are immediately readable from any angle.
  */
 
 import maplibregl, { type Map as MapLibreMap, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { statusColor } from "@/components/three/primitives";
+import { THEME_EVENT } from "@/components/theme/ThemeProvider";
 import type { LatLng } from "@/lib/geo";
 import type { Spot } from "@/lib/types";
 
-const STYLE_URL = "https://tiles.openfreemap.org/styles/dark";
+export type MapStyleKey = "streets" | "light" | "dark";
 
-/** Used when the remote style cannot be reached — pins still work. */
-const FALLBACK_STYLE: StyleSpecification = {
+const MAP_STYLES: Record<MapStyleKey, string> = {
+  streets: "https://tiles.openfreemap.org/styles/liberty",
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
+
+/** High-reliability OpenStreetMap raster fallback style if vector tiles are unreachable */
+const OSM_RASTER_FALLBACK: StyleSpecification = {
   version: 8,
-  sources: {},
+  sources: {
+    "osm-tiles": {
+      type: "raster",
+      tiles: [
+        "https://a.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://b.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        "https://c.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      ],
+      tileSize: 256,
+      attribution: "&copy; OpenStreetMap contributors",
+    },
+  },
   layers: [
     {
-      id: "parkpeer-void",
-      type: "background",
-      paint: { "background-color": "#060911" },
+      id: "osm-raster-layer",
+      type: "raster",
+      source: "osm-tiles",
+      minzoom: 0,
+      maxzoom: 19,
     },
   ],
 };
@@ -92,11 +108,13 @@ export interface MapCanvasProps {
   onSelect: (spotId: string) => void;
   onHover: (spotId: string | null) => void;
   center: LatLng;
-  /** Fires once the map is ready to take commands. */
   onReady?: () => void;
 }
 
-const EMPTY = { type: "FeatureCollection" as const, features: [] as Feature[] };
+const EMPTY: { type: "FeatureCollection"; features: Feature[] } = {
+  type: "FeatureCollection",
+  features: [],
+};
 
 export default function MapCanvas({
   spots,
@@ -109,21 +127,207 @@ export default function MapCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
+  const [styleKey, setStyleKey] = useState<MapStyleKey>(() => {
+    if (typeof document !== "undefined") {
+      return document.documentElement.classList.contains("light") ? "light" : "streets";
+    }
+    return "streets";
+  });
+  const fallbackActive = useRef(false);
 
   const geojson = useMemo(() => toGeoJson(spots, selectedId), [spots, selectedId]);
+  const geojsonRef = useRef(geojson);
 
-  /* ── Map bootstrap ─────────────────────────────────────────────────────── */
+  useEffect(() => {
+    geojsonRef.current = geojson;
+  }, [geojson]);
+
+  // Synchronize with external theme changes (from Nav or HudBar)
+  useEffect(() => {
+    const onThemeChange = (event: Event) => {
+      const custom = event as CustomEvent<{ theme: "dark" | "light" }>;
+      if (custom.detail?.theme === "light") {
+        setStyleKey("light");
+      } else {
+        setStyleKey("streets");
+      }
+    };
+
+    window.addEventListener(THEME_EVENT, onThemeChange);
+    return () => window.removeEventListener(THEME_EVENT, onThemeChange);
+  }, []);
+
+  // Re-attach custom parking spot layers whenever style changes or loads
+  const setupLayers = (map: MapLibreMap) => {
+    // 1. 3D basemap buildings (subtle, non-blocking)
+    const buildingLayer = map
+      .getStyle()
+      ?.layers?.find((layer) => layer.id === "building");
+    const buildingSource =
+      buildingLayer && "source" in buildingLayer ? buildingLayer.source : undefined;
+
+    if (buildingSource && !map.getLayer("parkpeer-buildings")) {
+      try {
+        map.addLayer(
+          {
+            id: "parkpeer-buildings",
+            type: "fill-extrusion",
+            source: String(buildingSource),
+            "source-layer": "building",
+            minzoom: 14,
+            paint: {
+              "fill-extrusion-color": "#475569",
+              "fill-extrusion-height": [
+                "coalesce",
+                ["get", "render_height"],
+                ["get", "height"],
+                6,
+              ],
+              "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+              "fill-extrusion-opacity": 0.18,
+            },
+          },
+          buildingLayer?.id,
+        );
+      } catch {
+        // layer might exist on HMR
+      }
+    }
+
+    // 2. Parking spots GeoJSON source
+    if (!map.getSource("parkpeer-spots")) {
+      map.addSource("parkpeer-spots", {
+        type: "geojson",
+        data: geojsonRef.current,
+        promoteId: "id",
+      });
+    }
+
+    // 3. Extruded bay beacon column
+    if (!map.getLayer("parkpeer-columns")) {
+      map.addLayer({
+        id: "parkpeer-columns",
+        type: "fill-extrusion",
+        source: "parkpeer-spots",
+        paint: {
+          "fill-extrusion-color": [
+            "case",
+            ["==", ["get", "status"], "available"],
+            "#10b981",
+            ["==", ["get", "status"], "locked"],
+            "#f59e0b",
+            "#06b6d4",
+          ],
+          "fill-extrusion-height": ["case", ["get", "selected"], 38, 20],
+          "fill-extrusion-opacity": ["case", ["get", "selected"], 0.45, 0.24],
+        },
+      });
+    }
+
+    // 4. Glowing base pulse
+    if (!map.getLayer("parkpeer-glow")) {
+      map.addLayer({
+        id: "parkpeer-glow",
+        type: "circle",
+        source: "parkpeer-spots",
+        paint: {
+          "circle-color": [
+            "case",
+            ["==", ["get", "status"], "locked"],
+            "#f59e0b",
+            ["==", ["get", "status"], "available"],
+            "#10b981",
+            "#06b6d4",
+          ],
+          "circle-radius": 18,
+          "circle-blur": 0.9,
+          "circle-opacity": 0.35,
+        },
+      });
+    }
+
+    // 5. Crisp high-contrast spot pin
+    if (!map.getLayer("parkpeer-pin")) {
+      map.addLayer({
+        id: "parkpeer-pin",
+        type: "circle",
+        source: "parkpeer-spots",
+        paint: {
+          "circle-color": [
+            "case",
+            ["==", ["get", "status"], "locked"],
+            "#f59e0b",
+            ["==", ["get", "status"], "available"],
+            "#10b981",
+            "#06b6d4",
+          ],
+          "circle-radius": ["case", ["get", "selected"], 9, 6.5],
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#ffffff",
+        },
+      });
+    }
+
+    // 6. High-contrast price badge
+    if (!map.getLayer("parkpeer-price")) {
+      map.addLayer({
+        id: "parkpeer-price",
+        type: "symbol",
+        source: "parkpeer-spots",
+        minzoom: 14.5,
+        layout: {
+          "text-field": ["get", "label"],
+          "text-size": 11,
+          "text-offset": [0, -1.8],
+          "text-allow-overlap": true,
+          "text-font": ["Noto Sans Bold", "Open Sans Bold"],
+        },
+        paint: {
+          "text-color": "#ffffff",
+          "text-halo-color": [
+            "case",
+            ["==", ["get", "status"], "available"],
+            "#059669",
+            ["==", ["get", "status"], "locked"],
+            "#d97706",
+            "#0284c7",
+          ],
+          "text-halo-width": 4,
+          "text-halo-blur": 0.5,
+        },
+      });
+    }
+
+    // 7. Selected bay outer ring
+    if (!map.getLayer("parkpeer-selected")) {
+      map.addLayer({
+        id: "parkpeer-selected",
+        type: "circle",
+        source: "parkpeer-spots",
+        filter: ["==", ["get", "selected"], true],
+        paint: {
+          "circle-color": "transparent",
+          "circle-radius": 24,
+          "circle-stroke-width": 2.5,
+          "circle-stroke-color": "#10b981",
+        },
+      });
+    }
+  };
+
+  /* ── Bootstrap Map ──────────────────────────────────────────────────────── */
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
+    const initialStyleUrl = MAP_STYLES[styleKey] || MAP_STYLES.streets;
+
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: STYLE_URL,
+      style: initialStyleUrl,
       center: [center.lng, center.lat],
-      zoom: 16.4,
-      pitch: 60,
-      bearing: -20,
-      // MapLibre v5 moved the WebGL context options under this key.
+      zoom: 16.2,
+      pitch: 38,
+      bearing: -15,
       canvasContextAttributes: { antialias: true },
       attributionControl: { compact: true },
     });
@@ -139,151 +343,21 @@ export default function MapCanvas({
       "bottom-right",
     );
 
-    let ready = false;
+    let isMapReady = false;
     const markReady = () => {
-      if (ready) return;
-      ready = true;
+      if (isMapReady) return;
+      isMapReady = true;
 
-      // ── 3D basemap buildings ──
-      // The dark style ships footprints but no extrusion; lift them so the map
-      // reads as a city at 60° rather than a flat sheet.
-      const buildingLayer = map
-        .getStyle()
-        ?.layers?.find((layer) => layer.id === "building");
-      const buildingSource =
-        buildingLayer && "source" in buildingLayer ? buildingLayer.source : undefined;
+      setupLayers(map);
 
-      if (buildingSource && !map.getLayer("parkpeer-buildings")) {
-        try {
-          map.addLayer(
-            {
-              id: "parkpeer-buildings",
-              type: "fill-extrusion",
-              source: String(buildingSource),
-              "source-layer": "building",
-              minzoom: 14,
-              paint: {
-                "fill-extrusion-color": "#0d1626",
-                "fill-extrusion-height": [
-                  "coalesce",
-                  ["get", "render_height"],
-                  ["get", "height"],
-                  8,
-                ],
-                "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-                "fill-extrusion-opacity": 0.78,
-              },
-            },
-            buildingLayer?.id,
-          );
-        } catch {
-          // Layer already added by a previous HMR pass — harmless.
-        }
-      }
-
-      // Created empty: the data effect below fills it on the same commit, and
-      // keeping the source out of the bootstrap effect means the map is built
-      // exactly once regardless of how often the catalogue changes.
-      map.addSource("parkpeer-spots", {
-        type: "geojson",
-        data: EMPTY,
-        promoteId: "id",
-      });
-
-      // The marker column. Height and colour both encode state.
-      map.addLayer({
-        id: "parkpeer-columns",
-        type: "fill-extrusion",
-        source: "parkpeer-spots",
-        paint: {
-          "fill-extrusion-color": [
-            "case",
-            ["==", ["get", "status"], "available"],
-            statusColor("available"),
-            ["==", ["get", "status"], "locked"],
-            statusColor("locked"),
-            "#64748b",
-          ],
-          "fill-extrusion-height": ["case", ["get", "selected"], 46, 24],
-          "fill-extrusion-opacity": ["case", ["get", "selected"], 0.5, 0.28],
-        },
-      });
-
-      map.addLayer({
-        id: "parkpeer-glow",
-        type: "circle",
-        source: "parkpeer-spots",
-        paint: {
-          "circle-color": [
-            "case",
-            ["==", ["get", "status"], "locked"],
-            statusColor("locked"),
-            statusColor("available"),
-          ],
-          "circle-radius": 16,
-          "circle-blur": 1,
-          "circle-opacity": 0.28,
-        },
-      });
-
-      map.addLayer({
-        id: "parkpeer-pin",
-        type: "circle",
-        source: "parkpeer-spots",
-        paint: {
-          "circle-color": [
-            "case",
-            ["==", ["get", "status"], "locked"],
-            statusColor("locked"),
-            statusColor("available"),
-          ],
-          "circle-radius": ["case", ["get", "selected"], 9, 6],
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#060911",
-        },
-      });
-
-      map.addLayer({
-        id: "parkpeer-price",
-        type: "symbol",
-        source: "parkpeer-spots",
-        minzoom: 15,
-        layout: {
-          "text-field": ["get", "label"],
-          "text-size": 11,
-          "text-offset": [0, -1.6],
-          "text-allow-overlap": true,
-          "text-font": ["Noto Sans Regular"],
-        },
-        paint: {
-          "text-color": "#e2e8f4",
-          "text-halo-color": "#060911",
-          "text-halo-width": 2,
-        },
-      });
-
-      // Halo on the selected bay only.
-      map.addLayer({
-        id: "parkpeer-selected",
-        type: "circle",
-        source: "parkpeer-spots",
-        filter: ["==", ["get", "selected"], true],
-        paint: {
-          "circle-color": "transparent",
-          "circle-radius": 22,
-          "circle-stroke-width": 2,
-          "circle-stroke-color": statusColor("available"),
-        },
-      });
-
-      // Slow breathing glow, driven by one paint property instead of geometry.
+      // Smooth pulsing glow
       if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         let frame = 0;
         const pulse = () => {
           if (!mapRef.current || !map.getLayer("parkpeer-glow")) return;
           frame = window.requestAnimationFrame(pulse);
           const t = performance.now() / 900;
-          map.setPaintProperty("parkpeer-glow", "circle-radius", 15 + Math.sin(t) * 3.5);
+          map.setPaintProperty("parkpeer-glow", "circle-radius", 16 + Math.sin(t) * 3.5);
         };
         frame = window.requestAnimationFrame(pulse);
         map.once("remove", () => window.cancelAnimationFrame(frame));
@@ -295,20 +369,19 @@ export default function MapCanvas({
 
     map.once("load", markReady);
 
-    // Style unreachable (offline, blocked host) — swap to the inline void style
-    // and build the marker layers on top of it instead of showing a blank map.
-    let swapped = false;
-    const swapToFallback = () => {
-      if (swapped || ready) return;
-      swapped = true;
-      map.setStyle(FALLBACK_STYLE);
+    // Resilient fallback: if remote vector style fails or times out, swap to OSM raster
+    const swapToOsmFallback = () => {
+      if (fallbackActive.current || isMapReady) return;
+      fallbackActive.current = true;
+      map.setStyle(OSM_RASTER_FALLBACK);
       map.once("styledata", markReady);
     };
-    map.once("error", swapToFallback);
-    const guard = window.setTimeout(swapToFallback, 8000);
+
+    map.once("error", swapToOsmFallback);
+    const guardTimer = window.setTimeout(swapToOsmFallback, 7000);
 
     return () => {
-      window.clearTimeout(guard);
+      window.clearTimeout(guardTimer);
       map.remove();
       mapRef.current = null;
       setReady(false);
@@ -316,7 +389,29 @@ export default function MapCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Push data changes into the source ─────────────────────────────────── */
+  /* ── Switch style dynamically ───────────────────────────────────────────── */
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !ready) return;
+
+    const styleUrl = MAP_STYLES[styleKey];
+    if (!styleUrl) return;
+
+    try {
+      map.setStyle(styleUrl);
+      map.once("styledata", () => {
+        setupLayers(map);
+        const source = map.getSource("parkpeer-spots");
+        if (source && "setData" in source) {
+          (source as maplibregl.GeoJSONSource).setData(geojsonRef.current as never);
+        }
+      });
+    } catch {
+      // ignore
+    }
+  }, [styleKey, ready]);
+
+  /* ── Push GeoJSON changes into source ───────────────────────────────────── */
   useEffect(() => {
     if (!ready) return;
     const source = mapRef.current?.getSource("parkpeer-spots");
@@ -325,11 +420,7 @@ export default function MapCanvas({
     }
   }, [geojson, ready]);
 
-  /* ── Interactions ────────────────────────────────────────────────────────
-     Bound in their own effect so the handlers always close over the current
-     callbacks. The alternative — stashing props in refs — is what trips the
-     React Compiler's "no ref writes during render" rule, and it is genuinely
-     unnecessary here: MapLibre's `off` removes exactly the handler given. */
+  /* ── Interactive Click & Hover ─────────────────────────────────────────── */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready) return;
@@ -370,7 +461,7 @@ export default function MapCanvas({
     };
   }, [ready, onSelect, onHover]);
 
-  /* ── Frame the selection ───────────────────────────────────────────────── */
+  /* ── Frame Selection ────────────────────────────────────────────────────── */
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !ready || !selectedId) return;
@@ -379,9 +470,9 @@ export default function MapCanvas({
 
     map.flyTo({
       center: [spot.lng, spot.lat],
-      zoom: Math.max(map.getZoom(), 17),
-      pitch: 62,
-      duration: 900,
+      zoom: Math.max(map.getZoom(), 16.8),
+      pitch: 42,
+      duration: 800,
       essential: true,
     });
   }, [selectedId, spots, ready]);
@@ -389,10 +480,51 @@ export default function MapCanvas({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+
+      {/* Floating Style Picker Pill on the Map */}
+      <div className="absolute top-24 right-4 z-20 flex items-center gap-1 rounded-2xl border border-slate-300 bg-white/90 p-1 shadow-md backdrop-blur-md dark:border-white/12 dark:bg-obsidian/85 dark:shadow-none">
+        <button
+          type="button"
+          onClick={() => setStyleKey("streets")}
+          aria-label="Streets map style"
+          className={`rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+            styleKey === "streets"
+              ? "bg-emerald-500 text-slate-950 shadow-sm"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+          }`}
+        >
+          🗺️ Streets
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleKey("light")}
+          aria-label="Light map style"
+          className={`rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+            styleKey === "light"
+              ? "bg-emerald-500 text-slate-950 shadow-sm"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+          }`}
+        >
+          ☀️ Light
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleKey("dark")}
+          aria-label="Dark map style"
+          className={`rounded-xl px-2.5 py-1 text-xs font-semibold transition ${
+            styleKey === "dark"
+              ? "bg-emerald-500 text-slate-950 shadow-sm"
+              : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+          }`}
+        >
+          🌙 Dark
+        </button>
+      </div>
+
       {!ready && (
         <div className="grid-lines grid-lines-fade absolute inset-0 grid place-items-center bg-obsidian">
           <p className="mono text-[10px] tracking-[0.3em] text-slate-500 uppercase">
-            Aligning satellite grid
+            Loading map tiles & parking spots…
           </p>
         </div>
       )}

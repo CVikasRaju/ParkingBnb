@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import ThemeToggle from "@/components/theme/ThemeToggle";
 import { signOutAction } from "@/lib/auth/actions";
 import type { SessionUser } from "@/lib/auth/session";
 
@@ -26,8 +27,8 @@ export default function Nav({ user }: { user: SessionUser | null }) {
               <span className="h-2.5 w-2.5 rounded-[3px] bg-obsidian" />
               <span className="absolute inset-0 animate-pulse-ring rounded-xl border border-emerald-400/50" />
             </span>
-            <span className="display text-lg text-white">
-              Park<span className="text-emerald-400">Peer</span>
+            <span className="display text-lg text-slate-900 dark:text-white">
+              Park<span className="text-emerald-500 dark:text-emerald-400">Peer</span>
             </span>
           </Link>
 
@@ -36,7 +37,7 @@ export default function Nav({ user }: { user: SessionUser | null }) {
               <Link
                 key={link.href}
                 href={link.href}
-                className="rounded-xl px-3.5 py-2 text-sm text-slate-300 transition hover:bg-white/5 hover:text-white"
+                className="rounded-xl px-3.5 py-2 text-sm text-slate-600 transition hover:bg-slate-200/50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-white/5 dark:hover:text-white"
               >
                 {link.label}
               </Link>
@@ -44,13 +45,15 @@ export default function Nav({ user }: { user: SessionUser | null }) {
           </div>
 
           <div className="flex items-center gap-2">
+            <ThemeToggle />
+
             {user ? (
               <>
-                <span className="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 sm:flex">
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-emerald-500/20 text-[11px] font-semibold text-emerald-300 uppercase">
+                <span className="hidden items-center gap-2 rounded-xl border border-slate-200 bg-slate-100/80 px-3 py-2 sm:flex dark:border-white/10 dark:bg-white/5">
+                  <span className="grid h-6 w-6 place-items-center rounded-full bg-emerald-500/20 text-[11px] font-semibold text-emerald-600 dark:text-emerald-300 uppercase">
                     {user.name.slice(0, 1)}
                   </span>
-                  <span className="text-xs text-slate-300">{user.name}</span>
+                  <span className="text-xs text-slate-700 dark:text-slate-300">{user.name}</span>
                   <span className="mono text-[10px] tracking-[0.16em] text-slate-500 uppercase">
                     {user.role}
                   </span>

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, .dark, .dark *));
+
 /* ─────────────────────────────────────────────────────────────────────────────
    ParkPeer — "Cyber-Urban Mobility" design tokens
    Obsidian surfaces, spatial glassmorphism, neon state colours.
@@ -12,11 +14,11 @@
      overstay   red-500      #EF4444
    ──────────────────────────────────────────────────────────────────────────── */
 @theme {
-  --color-obsidian: #060911;
-  --color-obsidian-800: #0a0f1c;
-  --color-obsidian-700: #101827;
-  --color-obsidian-600: #1a2438;
-  --color-obsidian-500: #27334b;
+  --color-obsidian: #090e1a;
+  --color-obsidian-800: #0e172a;
+  --color-obsidian-700: #16243d;
+  --color-obsidian-600: #1e3152;
+  --color-obsidian-500: #2d4672;
 
   --font-display: var(--font-space-grotesk), "Space Grotesk", ui-sans-serif,
     system-ui, sans-serif;
@@ -143,6 +145,54 @@
   }
 }
 
+/* ── Theme variables for dark and light modes ────────────────────────────── */
+:root,
+html.dark,
+[data-theme="dark"] {
+  --color-obsidian: #090e1a;
+  --color-obsidian-800: #0e172a;
+  --color-obsidian-700: #16243d;
+  --color-obsidian-600: #1e3152;
+  --color-obsidian-500: #2d4672;
+
+  --bg-page: #090e1a;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --glass-bg: color-mix(in srgb, #0b1120 78%, transparent);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --glass-strong-bg: color-mix(in srgb, #090e1a 90%, transparent);
+  --panel-bg: color-mix(in srgb, #0b1120 82%, transparent);
+  --field-bg: rgba(14, 23, 42, 0.7);
+  --field-border: rgba(255, 255, 255, 0.14);
+  --field-text: #f1f5f9;
+  --chip-bg: rgba(255, 255, 255, 0.06);
+  --chip-border: rgba(255, 255, 255, 0.12);
+  --chip-text: #cbd5e1;
+}
+
+html.light,
+[data-theme="light"] {
+  --color-obsidian: #f8fafc;
+  --color-obsidian-800: #f1f5f9;
+  --color-obsidian-700: #e2e8f0;
+  --color-obsidian-600: #cbd5e1;
+  --color-obsidian-500: #94a3b8;
+
+  --bg-page: #f8fafc;
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --glass-bg: rgba(255, 255, 255, 0.88);
+  --glass-border: rgba(15, 23, 42, 0.08);
+  --glass-strong-bg: rgba(255, 255, 255, 0.96);
+  --panel-bg: rgba(255, 255, 255, 0.92);
+  --field-bg: rgba(255, 255, 255, 0.96);
+  --field-border: rgba(15, 23, 42, 0.16);
+  --field-text: #0f172a;
+  --chip-bg: rgba(15, 23, 42, 0.05);
+  --chip-border: rgba(15, 23, 42, 0.12);
+  --chip-text: #334155;
+}
+
 /* ── Base ────────────────────────────────────────────────────────────────── */
 @layer base {
   html {
@@ -150,11 +200,16 @@
     -webkit-tap-highlight-color: transparent;
   }
 
+  html.light {
+    color-scheme: light;
+  }
+
   body {
     background-color: var(--color-obsidian);
-    color: #e2e8f4;
+    color: var(--text-main);
     font-family: var(--font-sans);
     overscroll-behavior-y: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
   }
 
   ::selection {
@@ -167,12 +222,12 @@
     height: 9px;
   }
   ::-webkit-scrollbar-track {
-    background: #060911;
+    background: var(--color-obsidian);
   }
   ::-webkit-scrollbar-thumb {
     background: #223049;
     border-radius: 9999px;
-    border: 2px solid #060911;
+    border: 2px solid var(--color-obsidian);
   }
   ::-webkit-scrollbar-thumb:hover {
     background: #32435f;
@@ -211,21 +266,23 @@
 
   /* Frozen-glass HUD surface used by every floating panel. */
   .glass {
-    background: color-mix(in srgb, #0a0f1c 72%, transparent);
-    border: 1px solid rgb(255 255 255 / 0.1);
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
     backdrop-filter: blur(20px) saturate(140%);
     -webkit-backdrop-filter: blur(20px) saturate(140%);
+    box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.1);
   }
 
   .glass-strong {
-    background: color-mix(in srgb, #060911 88%, transparent);
-    border: 1px solid rgb(255 255 255 / 0.12);
+    background: var(--glass-strong-bg);
+    border: 1px solid var(--glass-border);
     backdrop-filter: blur(28px) saturate(150%);
     -webkit-backdrop-filter: blur(28px) saturate(150%);
+    box-shadow: 0 18px 45px -12px rgba(0, 0, 0, 0.15);
   }
 
   .hairline {
-    border-color: rgb(255 255 255 / 0.1);
+    border-color: var(--glass-border);
   }
 
   /* Neon edge for the active/selected state. */
@@ -310,13 +367,13 @@
   }
 
   .btn-ghost {
-    border: 1px solid rgb(255 255 255 / 0.14);
-    background: rgb(255 255 255 / 0.04);
-    color: #e2e8f4;
+    border: 1px solid var(--glass-border);
+    background: var(--chip-bg);
+    color: var(--text-main);
   }
   .btn-ghost:hover:not(:disabled) {
     border-color: rgb(16 185 129 / 0.55);
-    background: rgb(255 255 255 / 0.08);
+    background: rgba(16, 185, 129, 0.12);
     transform: translateY(-1px);
   }
 
@@ -344,35 +401,38 @@
     align-items: center;
     gap: 0.35rem;
     border-radius: 9999px;
-    border: 1px solid rgb(255 255 255 / 0.12);
-    background: rgb(255 255 255 / 0.05);
+    border: 1px solid var(--chip-border);
+    background: var(--chip-bg);
+    color: var(--chip-text);
     padding: 0.24rem 0.65rem;
     font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    transition: all 0.15s ease;
   }
 
   .panel {
     border-radius: 1.25rem;
-    background: color-mix(in srgb, #0a0f1c 78%, transparent);
-    border: 1px solid rgb(255 255 255 / 0.09);
+    background: var(--panel-bg);
+    border: 1px solid var(--glass-border);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 12px 36px -12px rgba(0, 0, 0, 0.12);
   }
 
   .field {
     width: 100%;
     border-radius: 0.875rem;
-    border: 1px solid rgb(255 255 255 / 0.12);
-    background: rgb(6 9 17 / 0.7);
+    border: 1px solid var(--field-border);
+    background: var(--field-bg);
     padding: 0.7rem 0.9rem;
     font-size: 0.9rem;
-    color: #e2e8f4;
-    transition: border-color 0.16s ease;
+    color: var(--field-text);
+    transition: border-color 0.16s ease, background-color 0.16s ease;
   }
   .field::placeholder {
-    color: rgb(100 116 139 / 0.8);
+    color: rgb(148 163 184 / 0.8);
   }
   .field:focus {
     outline: none;
@@ -397,30 +457,90 @@
   }
 }
 
-/* ── MapLibre: keep the basemap married to the dark theme ─────────────────── */
+/* ── Light Mode High Contrast Styling ────────────────────────────────────── */
+html.light body {
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+html.light h1,
+html.light h2,
+html.light h3,
+html.light h4 {
+  color: #0f172a;
+}
+
+html.light .text-gradient-mist {
+  background: linear-gradient(180deg, #0f172a 10%, #334155);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+html.light .btn-ghost {
+  border: 1px solid rgba(15, 23, 42, 0.14);
+  background: rgba(15, 23, 42, 0.04);
+  color: #1e293b;
+}
+
+html.light .btn-ghost:hover:not(:disabled) {
+  border-color: rgb(16 185 129 / 0.65);
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+}
+
+html.light .text-slate-400 {
+  color: #64748b;
+}
+
+html.light .text-slate-300 {
+  color: #334155;
+}
+
+html.light .text-slate-200 {
+  color: #1e293b;
+}
+
+/* ── MapLibre: adaptive controls for both themes ──────────────────────────── */
 .maplibregl-map {
-  background: #060911;
+  background: #090e1a;
   font-family: var(--font-sans);
 }
 
 .maplibregl-ctrl-group {
-  background: rgb(10 15 28 / 0.85) !important;
-  border: 1px solid rgb(255 255 255 / 0.12) !important;
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border) !important;
   backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.15);
 }
 .maplibregl-ctrl-group button + button {
-  border-top: 1px solid rgb(255 255 255 / 0.1) !important;
+  border-top: 1px solid var(--glass-border) !important;
 }
 .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
   filter: invert(1) opacity(0.75);
 }
+
+html.light .maplibregl-map {
+  background: #f1f5f9;
+}
+html.light .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: none;
+  opacity: 0.85;
+}
+
 .maplibregl-ctrl-attrib {
-  background: rgb(6 9 17 / 0.7) !important;
+  background: var(--glass-bg) !important;
   font-size: 10px !important;
+  border-radius: 6px;
+  margin: 4px;
 }
 .maplibregl-ctrl-attrib a {
   color: rgb(148 163 184) !important;
 }
+html.light .maplibregl-ctrl-attrib a {
+  color: #2563eb !important;
+}
+
 .maplibregl-popup-content {
   background: transparent !important;
   box-shadow: none !important;

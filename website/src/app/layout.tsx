@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Plus_Jakarta_Sans, Space_Grotesk } from "next/font/google";
 
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import "./globals.css";
 
 /* Display: automotive/geometric. Data: monospaced, so countdowns, GPS
@@ -47,8 +48,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#060911",
-  colorScheme: "dark",
+  themeColor: "#090e1a",
 };
 
 export default function RootLayout({
@@ -60,10 +60,30 @@ export default function RootLayout({
     <html
       lang="en"
       data-scroll-behavior="smooth"
+      suppressHydrationWarning
       className={`${spaceGrotesk.variable} ${jakarta.variable} ${jetbrains.variable} h-full antialiased`}
     >
-      <body className="min-h-full bg-obsidian font-sans text-slate-200">
-        {children}
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var saved = localStorage.getItem('parkpeer-theme') || 'dark';
+                  document.documentElement.classList.remove('light', 'dark');
+                  document.documentElement.classList.add(saved);
+                  document.documentElement.setAttribute('data-theme', saved);
+                  document.documentElement.style.colorScheme = saved;
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
+      <body className="min-h-full bg-obsidian font-sans text-slate-200 transition-colors duration-200">
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
